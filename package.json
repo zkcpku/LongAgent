@@ -1,0 +1,24 @@
+{
+  "name": "longrun-agent",
+  "version": "0.1.0",
+  "description": "Sequential long-running Codex workflow engine with queue/state/hooks/metrics",
+  "private": true,
+  "scripts": {
+    "longrun:init": "node scripts/longrun/init.mjs",
+    "longrun:enqueue": "node scripts/longrun/enqueue.mjs",
+    "longrun:configure": "node scripts/longrun/configure.mjs",
+    "longrun:run-once": "node scripts/longrun/run-once.mjs",
+    "longrun:run": "node scripts/longrun/run-forever.mjs",
+    "longrun:status": "node scripts/longrun/status.mjs",
+    "longrun:report": "node scripts/longrun/report.mjs",
+    "longrun:unblock": "node scripts/longrun/unblock.mjs"
+  },
+  "keywords": [
+    "longrun",
+    "codex",
+    "agent",
+    "workflow",
+    "automation"
+  ],
+  "license": "MIT"
+}

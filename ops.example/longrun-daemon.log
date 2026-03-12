@@ -1,0 +1,6 @@
+
+> longrun-agent@0.1.0 longrun:run
+> node scripts/longrun/run-forever.mjs --interval 20
+
+
+[longrun] iteration 1

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import {
   OPS_DIR,
   ROOT,
@@ -13,8 +14,11 @@ import {
   writeJson,
   readJsonl,
   writeJsonl,
+  nowIso,
   requireState,
   getCurrentTask,
+  nextTaskId,
+  normalizeGates,
   setTask,
   appendEvent,
   runHook,
@@ -160,6 +164,169 @@ function appendTaskStepRecord(runtime, row) {
   fs.appendFileSync(filePath, `${JSON.stringify(row)}\n`, 'utf8');
 }
 
+function hasConfiguredGates(rawGates) {
+  const gates = normalizeGates(rawGates);
+  return (
+    Boolean(gates.cmd) ||
+    gates.requiredFiles.length > 0 ||
+    gates.forbidPatterns.length > 0 ||
+    gates.requiredTestPackages.length > 0 ||
+    gates.minTestFiles > 0 ||
+    gates.minTestCases > 0 ||
+    gates.failOnNoTests
+  );
+}
+
+function parseVerifyLogStats(verifyLogPath) {
+  const text = readTextIfExists(verifyLogPath);
+  const lines = text ? text.split(/\r?\n/) : [];
+  const noTestPackages = new Set();
+  const seenPackages = new Set();
+  let noTestsCount = 0;
+  let testFiles = 0;
+  let testCases = 0;
+
+  for (const line of lines) {
+    const pkgMatch = line.match(/^(\S+)\s+test:\s+(.*)$/);
+    if (pkgMatch) {
+      const pkg = pkgMatch[1];
+      const body = pkgMatch[2] || '';
+      seenPackages.add(pkg);
+      if (/No test files found/i.test(body)) {
+        noTestsCount += 1;
+        noTestPackages.add(pkg);
+      }
+    }
+
+    const filesMatch = line.match(/Test Files\s+(\d+)\s+passed/i);
+    if (filesMatch) {
+      testFiles += Number(filesMatch[1]) || 0;
+    }
+    const testMatch = line.match(/Tests\s+(\d+)\s+passed/i);
+    if (testMatch) {
+      testCases += Number(testMatch[1]) || 0;
+    }
+  }
+
+  return {
+    verifyLogPath,
+    noTestsCount,
+    noTestPackages: [...noTestPackages],
+    seenPackages: [...seenPackages],
+    testFiles,
+    testCases
+  };
+}
+
+function searchPatternInWorkdir(pattern, workdir) {
+  const rg = spawnSync(
+    'rg',
+    ['-n', '-S', '--hidden', '--glob', '!.git', '--glob', '!node_modules', '--glob', '!dist', pattern, '.'],
+    { cwd: workdir, encoding: 'utf8' }
+  );
+  if (rg.status === 0) {
+    return {
+      ok: true,
+      matched: true,
+      output: (rg.stdout || '').trim()
+    };
+  }
+  if (rg.status === 1) {
+    return {
+      ok: true,
+      matched: false,
+      output: ''
+    };
+  }
+  if (rg.error && rg.error.code === 'ENOENT') {
+    const grep = spawnSync(
+      'grep',
+      ['-R', '-n', '--exclude-dir=.git', '--exclude-dir=node_modules', '--exclude-dir=dist', pattern, '.'],
+      { cwd: workdir, encoding: 'utf8' }
+    );
+    return {
+      ok: grep.status === 0 || grep.status === 1,
+      matched: grep.status === 0,
+      output: (grep.stdout || '').trim(),
+      error: grep.status > 1 ? (grep.stderr || '').trim() : ''
+    };
+  }
+  return {
+    ok: false,
+    matched: false,
+    output: '',
+    error: (rg.stderr || '').trim() || `pattern search failed (status=${rg.status})`
+  };
+}
+
+function evaluateDeclarativeGates(rawGates, options = {}) {
+  const gates = normalizeGates(rawGates);
+  const workdir = options.workdir || ROOT;
+  const verifyLogPath = options.verifyLogPath || '';
+  const failures = [];
+  const diagnostics = {
+    verify: parseVerifyLogStats(verifyLogPath),
+    patternChecks: []
+  };
+
+  for (const relPath of gates.requiredFiles) {
+    const absPath = path.isAbsolute(relPath) ? relPath : path.resolve(workdir, relPath);
+    if (!fs.existsSync(absPath)) {
+      failures.push(`required file missing: ${relPath}`);
+    }
+  }
+
+  for (const pattern of gates.forbidPatterns) {
+    const found = searchPatternInWorkdir(pattern, workdir);
+    diagnostics.patternChecks.push({
+      pattern,
+      ok: found.ok,
+      matched: found.matched,
+      output: found.output,
+      error: found.error || ''
+    });
+    if (!found.ok) {
+      failures.push(`forbid pattern check failed: ${pattern}`);
+    } else if (found.matched) {
+      failures.push(`forbid pattern matched: ${pattern}`);
+    }
+  }
+
+  if (gates.failOnNoTests && diagnostics.verify.noTestsCount > 0) {
+    failures.push(`verify reported packages with no tests (${diagnostics.verify.noTestsCount})`);
+  }
+
+  const noTestSet = new Set(diagnostics.verify.noTestPackages);
+  const seenSet = new Set(diagnostics.verify.seenPackages);
+  for (const pkg of gates.requiredTestPackages) {
+    if (!seenSet.has(pkg)) {
+      failures.push(`required test package not observed in verify log: ${pkg}`);
+      continue;
+    }
+    if (noTestSet.has(pkg)) {
+      failures.push(`required test package has no tests: ${pkg}`);
+    }
+  }
+
+  if (gates.minTestFiles > 0 && diagnostics.verify.testFiles < gates.minTestFiles) {
+    failures.push(
+      `minTestFiles not met: expected >= ${gates.minTestFiles}, got ${diagnostics.verify.testFiles}`
+    );
+  }
+
+  if (gates.minTestCases > 0 && diagnostics.verify.testCases < gates.minTestCases) {
+    failures.push(
+      `minTestCases not met: expected >= ${gates.minTestCases}, got ${diagnostics.verify.testCases}`
+    );
+  }
+
+  return {
+    ok: failures.length === 0,
+    failures,
+    diagnostics
+  };
+}
+
 function saveAll(state, queue) {
   writeJson(STATE_PATH, state);
   writeJsonl(QUEUE_PATH, queue);
@@ -201,6 +368,22 @@ try {
       }
     });
   }
+  if (!Object.prototype.hasOwnProperty.call(state.hooks, 'acceptance')) {
+    state = updateState(state, {
+      hooks: {
+        ...state.hooks,
+        acceptance: ''
+      }
+    });
+  }
+  if (!Object.prototype.hasOwnProperty.call(state.hooks, 'globalAcceptance')) {
+    state = updateState(state, {
+      hooks: {
+        ...state.hooks,
+        globalAcceptance: ''
+      }
+    });
+  }
   if (!Object.prototype.hasOwnProperty.call(state.hooks, 'planning')) {
     state = updateState(state, {
       hooks: {
@@ -211,6 +394,11 @@ try {
   }
   if (!state.repairMaxAttempts || Number(state.repairMaxAttempts) <= 0) {
     state = updateState(state, { repairMaxAttempts: DEFAULT_REPAIR_MAX_ATTEMPTS });
+  }
+  if (!state.globalGates || typeof state.globalGates !== 'object') {
+    state = updateState(state, { globalGates: normalizeGates({}) });
+  } else {
+    state = updateState(state, { globalGates: normalizeGates(state.globalGates) });
   }
 
   if (!Array.isArray(queue)) {
@@ -224,15 +412,147 @@ try {
   let currentTask = getCurrentTask(queue, state);
 
   if (!currentTask) {
-    state = updateState(state, {
-      phase: 'DONE',
-      currentTaskId: null,
-      blockedReason: null,
-      lastRunAt: new Date().toISOString()
-    });
-    appendEvent('runner_idle', { phase: state.phase });
-    saveAll(state, queue);
-    console.log('no pending task, phase -> DONE');
+    const globalGates = normalizeGates(state.globalGates);
+    const hasGlobalDeclarative = hasConfiguredGates(globalGates);
+    const hasGlobalHook = Boolean(String(state.hooks?.globalAcceptance || '').trim());
+    const shouldEvaluateGlobal = hasGlobalDeclarative || hasGlobalHook;
+
+    if (!shouldEvaluateGlobal) {
+      state = updateState(state, {
+        phase: 'DONE',
+        currentTaskId: null,
+        blockedReason: null,
+        lastRunAt: new Date().toISOString()
+      });
+      appendEvent('runner_idle', { phase: state.phase });
+      saveAll(state, queue);
+      console.log('no pending task, phase -> DONE');
+    } else {
+      const globalArtifactsDir = path.join(artifactsDir, '_global');
+      ensureDir(globalArtifactsDir);
+      const runtime = {
+        runnerRoot: ROOT,
+        opsDir: OPS_DIR,
+        queuePath: QUEUE_PATH,
+        planPath: path.join(OPS_DIR, 'Plan.md'),
+        workdir,
+        artifactsDir,
+        taskArtifactsDir: globalArtifactsDir
+      };
+
+      let hookResult = {
+        ok: true,
+        skipped: true,
+        command: '',
+        durationMs: 0,
+        exitCode: 0
+      };
+
+      if (hasGlobalHook) {
+        hookResult = runHook(state.hooks.globalAcceptance, contextFrom(null, state, runtime), {
+          cwd: workdir,
+          liveOutput: true
+        });
+        printHookResult('globalAcceptance', hookResult);
+      } else {
+        printHookResult('globalAcceptance', hookResult);
+      }
+
+      appendEvent('global_hook_executed', {
+        phase: state.phase,
+        hook: 'globalAcceptance',
+        skipped: hookResult.skipped,
+        ok: hookResult.ok,
+        command: hookResult.command || '',
+        cwd: workdir,
+        startedAt: hookResult.startedAt || null,
+        endedAt: hookResult.endedAt || null,
+        durationMs: hookResult.durationMs ?? 0,
+        exitCode: hookResult.exitCode ?? 0
+      });
+
+      const declarativeResult = evaluateDeclarativeGates(globalGates, {
+        workdir,
+        verifyLogPath: path.join(globalArtifactsDir, 'verify.log')
+      });
+
+      const globalFailures = [];
+      if (!hookResult.ok) {
+        globalFailures.push('global acceptance hook failed');
+      }
+      if (!declarativeResult.ok) {
+        globalFailures.push(...declarativeResult.failures);
+      }
+
+      const globalGateOk = globalFailures.length === 0;
+      appendEvent('global_gate_evaluated', {
+        ok: globalGateOk,
+        hasGlobalHook,
+        hasGlobalDeclarative,
+        failures: globalFailures,
+        diagnostics: declarativeResult.diagnostics
+      });
+
+      if (globalGateOk) {
+        appendEvent('global_gate_passed', {});
+        state = updateState(state, {
+          phase: 'DONE',
+          currentTaskId: null,
+          blockedReason: null,
+          lastRunAt: new Date().toISOString()
+        });
+        appendEvent('runner_idle', { phase: state.phase });
+        saveAll(state, queue);
+        console.log('queue empty and global gate passed, phase -> DONE');
+      } else {
+        const taskId = nextTaskId(queue);
+        const failureText = globalFailures.slice(0, 10).join('; ');
+        const autoTask = {
+          id: taskId,
+          title: 'Auto repair global acceptance gates',
+          milestone: state.milestone || 'M1',
+          priority: 'P0',
+          acceptance: 'Global acceptance gates pass when queue becomes empty.',
+          prompt: [
+            'Global acceptance gates failed.',
+            `Failures: ${failureText || 'unknown failure'}.`,
+            `Fix code/config in ${workdir} until global gates pass.`,
+            'Use latest global diagnostics from ops/events.jsonl (global_gate_evaluated).'
+          ].join(' '),
+          notes: 'Auto-generated task from global gate failure.',
+          status: 'PENDING',
+          gates: globalGates,
+          autoGenerated: true,
+          autoKind: 'GLOBAL_GATE_REPAIR',
+          metrics: {
+            stepCount: 0,
+            totalDurationMs: 0,
+            totalTokensUsed: 0,
+            byHook: {}
+          },
+          createdAt: nowIso(),
+          startedAt: null,
+          completedAt: null,
+          lastUpdated: nowIso(),
+          repairAttempts: 0
+        };
+        queue.push(autoTask);
+        appendEvent('task_enqueued_auto', {
+          taskId: autoTask.id,
+          title: autoTask.title,
+          autoKind: autoTask.autoKind,
+          reason: 'global_gate_failed'
+        });
+        state = updateState(state, {
+          phase: 'PLANNING',
+          currentTaskId: null,
+          blockedReason: null,
+          lastRunAt: new Date().toISOString()
+        });
+        saveAll(state, queue);
+        console.log(`global gate failed, auto task enqueued: ${autoTask.id}`);
+      }
+    }
   } else {
     const taskArtifactsDir = path.join(artifactsDir, currentTask.id);
     ensureDir(taskArtifactsDir);
@@ -307,7 +627,7 @@ try {
     const runPhaseHook = (hookName, options = {}) => {
       const blockOnFailure = options.blockOnFailure !== false;
       const fallbackHook = options.fallbackHook || '';
-      const hook = state.hooks?.[hookName] || fallbackHook;
+      const hook = options.commandOverride || state.hooks?.[hookName] || fallbackHook;
       const result = runHook(hook, contextFrom(currentTask, state, runtime), {
         cwd: workdir,
         liveOutput: true
@@ -363,6 +683,31 @@ try {
       return result;
     };
 
+    const routeFailureToRepair = (eventType, payload = {}) => {
+      const maxAttempts = Number(state.repairMaxAttempts) || DEFAULT_REPAIR_MAX_ATTEMPTS;
+      const nextAttempt = (Number(currentTask.repairAttempts) || 0) + 1;
+      queue = setTask(queue, currentTask.id, { repairAttempts: nextAttempt });
+      currentTask = queue.find((task) => task.id === currentTask.id) || currentTask;
+
+      appendEvent(eventType, {
+        taskId: currentTask.id,
+        attempt: nextAttempt,
+        maxAttempts,
+        ...payload
+      });
+
+      if (nextAttempt > maxAttempts) {
+        markBlocked(`${eventType} after ${maxAttempts} repair attempts`, eventType, {
+          command: payload.command || '',
+          exitCode: payload.exitCode ?? 1
+        });
+      }
+
+      transition('REPAIRING');
+      saveAll(state, queue);
+      console.log(`phase VERIFYING -> REPAIRING (${currentTask.id}) attempt ${nextAttempt}/${maxAttempts}`);
+    };
+
     switch (state.phase) {
       case 'PLANNING': {
         const queueBefore = readTextIfExists(runtime.queuePath);
@@ -395,14 +740,13 @@ try {
         const refreshedTask = getCurrentTask(queue, state);
         if (!refreshedTask) {
           state = updateState(state, {
-            phase: 'DONE',
+            phase: 'PLANNING',
             currentTaskId: null,
             blockedReason: null,
             lastRunAt: new Date().toISOString()
           });
-          appendEvent('runner_idle', { phase: state.phase });
           saveAll(state, queue);
-          console.log('planning changed queue to empty, phase -> DONE');
+          console.log('planning changed queue to empty, will evaluate global gate next iteration');
           break;
         }
         currentTask = refreshedTask;
@@ -426,26 +770,74 @@ try {
       case 'VERIFYING': {
         const verifyResult = runPhaseHook('verify', { blockOnFailure: false });
         if (!verifyResult.ok) {
-          const maxAttempts = Number(state.repairMaxAttempts) || DEFAULT_REPAIR_MAX_ATTEMPTS;
-          const nextAttempt = (Number(currentTask.repairAttempts) || 0) + 1;
-          queue = setTask(queue, currentTask.id, { repairAttempts: nextAttempt });
-          currentTask = queue.find((task) => task.id === currentTask.id);
-
-          appendEvent('verify_failed', {
-            taskId: currentTask.id,
-            attempt: nextAttempt,
-            maxAttempts: maxAttempts,
+          routeFailureToRepair('verify_failed', {
             command: verifyResult.command || '',
             exitCode: verifyResult.exitCode ?? null
           });
+          break;
+        }
 
-          if (nextAttempt > maxAttempts) {
-            markBlocked(`verify failed after ${maxAttempts} repair attempts`, 'verify', verifyResult);
-          }
+        const taskGates = normalizeGates(currentTask.gates);
+        const hasTaskDeclarativeGates = hasConfiguredGates(taskGates);
+        const acceptanceHook = String(state.hooks?.acceptance || '').trim();
+        const hasTaskAcceptanceHook = Boolean(acceptanceHook);
+        let acceptanceHookResult = {
+          ok: true,
+          skipped: true,
+          command: '',
+          exitCode: 0
+        };
+        let acceptanceCmdResult = {
+          ok: true,
+          skipped: true,
+          command: '',
+          exitCode: 0
+        };
 
-          transition('REPAIRING');
-          saveAll(state, queue);
-          console.log(`phase VERIFYING -> REPAIRING (${currentTask.id}) attempt ${nextAttempt}/${maxAttempts}`);
+        if (hasTaskAcceptanceHook) {
+          acceptanceHookResult = runPhaseHook('acceptance', { blockOnFailure: false });
+        } else {
+          printHookResult('acceptance', acceptanceHookResult);
+        }
+
+        if (taskGates.cmd) {
+          acceptanceCmdResult = runPhaseHook('acceptance_cmd', {
+            blockOnFailure: false,
+            commandOverride: taskGates.cmd
+          });
+        }
+
+        const declarativeResult = evaluateDeclarativeGates(taskGates, {
+          workdir,
+          verifyLogPath: path.join(taskArtifactsDir, 'verify.log')
+        });
+        const acceptanceFailures = [];
+        if (!acceptanceHookResult.ok) {
+          acceptanceFailures.push('acceptance hook failed');
+        }
+        if (!acceptanceCmdResult.ok) {
+          acceptanceFailures.push('acceptance cmd failed');
+        }
+        if (!declarativeResult.ok) {
+          acceptanceFailures.push(...declarativeResult.failures);
+        }
+
+        appendEvent('acceptance_evaluated', {
+          taskId: currentTask.id,
+          ok: acceptanceFailures.length === 0,
+          hasAcceptanceHook: hasTaskAcceptanceHook,
+          hasDeclarativeGates: hasTaskDeclarativeGates,
+          hasAcceptanceCmd: Boolean(taskGates.cmd),
+          failures: acceptanceFailures,
+          diagnostics: declarativeResult.diagnostics
+        });
+
+        if (acceptanceFailures.length > 0) {
+          routeFailureToRepair('acceptance_failed', {
+            command: acceptanceCmdResult.command || acceptanceHookResult.command || '',
+            exitCode: acceptanceCmdResult.exitCode ?? acceptanceHookResult.exitCode ?? 1,
+            failures: acceptanceFailures
+          });
           break;
         }
 

@@ -6,6 +6,7 @@ import {
   EVENTS_PATH,
   countByStatus,
   getCurrentTask,
+  normalizeGates,
   parseArgs
 } from './lib.mjs';
 
@@ -19,6 +20,16 @@ const counts = countByStatus(queue);
 const current = getCurrentTask(queue, state);
 const pending = queue.filter((task) => task.status === 'PENDING').slice(0, 5);
 const recentEvents = events.slice(-8);
+const globalGates = normalizeGates(state.globalGates);
+const hasGlobalGates =
+  Boolean(globalGates.cmd) ||
+  globalGates.requiredFiles.length > 0 ||
+  globalGates.forbidPatterns.length > 0 ||
+  globalGates.requiredTestPackages.length > 0 ||
+  globalGates.minTestFiles > 0 ||
+  globalGates.minTestCases > 0 ||
+  globalGates.failOnNoTests;
+const hasGlobalAcceptanceHook = Boolean(String(state.hooks?.globalAcceptance || '').trim());
 
 if (asJson) {
   console.log(JSON.stringify({
@@ -46,6 +57,7 @@ if (current?.metrics) {
 }
 console.log(`workdir: ${state.workdir || process.cwd()}`);
 console.log(`artifactsDir: ${state.artifactsDir || 'not set'}`);
+console.log(`globalGate: ${hasGlobalGates || hasGlobalAcceptanceHook ? 'enabled' : 'disabled'}`);
 console.log(`queue: pending=${counts.PENDING || 0} in_progress=${counts.IN_PROGRESS || 0} completed=${counts.COMPLETED || 0} blocked=${counts.BLOCKED || 0}`);
 if (state.blockedReason) {
   console.log(`blockedReason: ${state.blockedReason}`);

@@ -15,10 +15,11 @@ Core capabilities:
 
 1. Queue-driven execution (`ops/queue.jsonl`)
 2. Durable runner state (`ops/state.json`)
-3. Hook-based automation (`planning`, `implement`, `verify`, `repair`, `visualize`, `checkpoint`)
-4. Auto-repair loop when verification fails
+3. Hook-based automation (`planning`, `implement`, `verify`, `acceptance`, `repair`, `visualize`, `checkpoint`, `globalAcceptance`)
+4. Auto-repair loop when verification or acceptance fails
 5. Step metrics (`durationMs`, `tokensUsed`, cumulative totals)
 6. Optional git checkpoint commit per task
+7. Declarative hard gates for task/global acceptance
 
 ## State Machine
 
@@ -28,21 +29,27 @@ flowchart TD
   B -->|ok| C["VERIFYING"]
   B -->|fail| X["BLOCKED"]
 
-  C -->|ok| D["VISUALIZING"]
+  C -->|ok| D["ACCEPTANCE"]
   C -->|fail and attempts <= max| E["REPAIRING"]
   C -->|fail and attempts > max| X
+
+  D -->|ok| F["VISUALIZING"]
+  D -->|fail and attempts <= max| E
+  D -->|fail and attempts > max| X
 
   E -->|ok| C
   E -->|fail| X
 
-  D -->|ok| F["CHECKPOINT"]
-  D -->|fail| X
-
-  F -->|ok| A
+  F -->|ok| G["CHECKPOINT"]
   F -->|fail| X
 
-  A -->|queue empty| G["DONE"]
-  G -->|new tasks| B
+  G -->|ok| A
+  G -->|fail| X
+
+  A -->|queue empty + global gate pass| H["DONE"]
+  A -->|queue empty + global gate fail| I["AUTO REPAIR TASK"]
+  I --> A
+  H -->|new tasks| B
 ```
 
 Task status transitions:
@@ -118,6 +125,8 @@ Configure hooks for automation:
 npm run longrun:configure -- \
   --implement 'codex exec "{{task_prompt}}" > "{{task_artifacts_dir}}/implement.log" 2>&1' \
   --verify 'npm test --if-present > "{{task_artifacts_dir}}/verify.log" 2>&1' \
+  --acceptance 'bash scripts/acceptance.sh > "{{task_artifacts_dir}}/acceptance.log" 2>&1' \
+  --globalAcceptance 'bash scripts/global-gate.sh > "{{artifacts_dir}}/_global/verify.log" 2>&1' \
   --repair 'codex exec "Fix {{task_artifacts_dir}}/verify.log" > "{{task_artifacts_dir}}/repair.log" 2>&1'
 ```
 
@@ -126,6 +135,35 @@ Template vars include:
 - `{{task_id}}`, `{{task_title}}`, `{{task_prompt}}`, `{{task_acceptance}}`
 - `{{workdir}}`, `{{artifacts_dir}}`, `{{task_artifacts_dir}}`
 - `{{queue_path}}`, `{{plan_path}}`, `{{phase}}`
+
+## Hard Gates
+
+Per-task gates are supported via `longrun:enqueue`:
+
+```bash
+npm run longrun:enqueue -- "Task title" \
+  --prompt "..." \
+  --acceptance "..." \
+  --acceptance-cmd "pnpm -r test --if-present" \
+  --required-files "packages/ts-cli/src/index.ts,packages/ts-tui/src/index.ts" \
+  --forbid-patterns "not yet implemented,TODO\\(critical\\)" \
+  --required-test-packages "packages/ts-cli,packages/ts-tui" \
+  --min-test-files 10 \
+  --min-test-cases 100 \
+  --fail-on-no-tests true
+```
+
+Global gate (checked when queue becomes empty):
+
+```bash
+npm run longrun:configure -- \
+  --global-acceptance-cmd 'pnpm -r test --if-present > "{{artifacts_dir}}/_global/verify.log" 2>&1' \
+  --global-required-files "final-report.md" \
+  --global-forbid-patterns "not yet implemented" \
+  --global-required-test-packages "packages/ts-cli,packages/ts-tui" \
+  --global-min-test-cases 150 \
+  --global-fail-on-no-tests true
+```
 
 ## Git Behavior
 

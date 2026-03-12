@@ -30,6 +30,16 @@ export const DEFAULT_PLANNING_HOOK =
 export const DEFAULT_CHECKPOINT_HOOK =
   'set -e; if [ -d .git ]; then if ! git config user.email >/dev/null 2>&1; then git config user.email "codex-longrun@local"; fi; if ! git config user.name >/dev/null 2>&1; then git config user.name "Codex Longrun"; fi; git add -A; if git diff --cached --quiet; then echo "[checkpoint] no changes to commit"; else git commit -m "checkpoint({{task_id}}): auto snapshot"; fi; else echo "[checkpoint] skip commit: no git repo in {{workdir}}"; fi; echo "$(date -Iseconds) {{task_id}} {{task_title}}" >> "{{artifacts_dir}}/timeline.log"';
 
+const EMPTY_GATES = Object.freeze({
+  cmd: '',
+  requiredFiles: [],
+  forbidPatterns: [],
+  requiredTestPackages: [],
+  minTestFiles: 0,
+  minTestCases: 0,
+  failOnNoTests: false
+});
+
 export function nowIso() {
   return new Date().toISOString();
 }
@@ -128,14 +138,56 @@ export function defaultState(options = {}) {
     workdir,
     artifactsDir,
     updatedAt: now,
+    globalGates: {
+      ...EMPTY_GATES
+    },
     hooks: {
       planning: DEFAULT_PLANNING_HOOK,
       implement: '',
       verify: '',
+      acceptance: '',
       repair: DEFAULT_REPAIR_HOOK,
       visualize: '',
-      checkpoint: DEFAULT_CHECKPOINT_HOOK
+      checkpoint: DEFAULT_CHECKPOINT_HOOK,
+      globalAcceptance: ''
     }
+  };
+}
+
+export function parseListArg(input) {
+  if (input == null || input === false) return [];
+  const text = String(input).trim();
+  if (!text) return [];
+  return text
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+export function normalizeGates(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return {
+      ...EMPTY_GATES
+    };
+  }
+
+  const minTestFiles = Number(raw.minTestFiles);
+  const minTestCases = Number(raw.minTestCases);
+
+  return {
+    cmd: typeof raw.cmd === 'string' ? raw.cmd.trim() : '',
+    requiredFiles: Array.isArray(raw.requiredFiles)
+      ? raw.requiredFiles.map((v) => String(v).trim()).filter(Boolean)
+      : [],
+    forbidPatterns: Array.isArray(raw.forbidPatterns)
+      ? raw.forbidPatterns.map((v) => String(v).trim()).filter(Boolean)
+      : [],
+    requiredTestPackages: Array.isArray(raw.requiredTestPackages)
+      ? raw.requiredTestPackages.map((v) => String(v).trim()).filter(Boolean)
+      : [],
+    minTestFiles: Number.isFinite(minTestFiles) && minTestFiles > 0 ? Math.floor(minTestFiles) : 0,
+    minTestCases: Number.isFinite(minTestCases) && minTestCases > 0 ? Math.floor(minTestCases) : 0,
+    failOnNoTests: Boolean(raw.failOnNoTests)
   };
 }
 
@@ -357,6 +409,17 @@ export function writeSnapshot(state, queue) {
   lines.push(`- Phase: ${state.phase}`);
   lines.push(`- Workdir: ${state.workdir || ROOT}`);
   lines.push(`- Artifacts Dir: ${state.artifactsDir || DEFAULT_ARTIFACTS_DIR}`);
+  const globalGates = normalizeGates(state.globalGates);
+  const hasGlobalGates =
+    Boolean(globalGates.cmd) ||
+    globalGates.requiredFiles.length > 0 ||
+    globalGates.forbidPatterns.length > 0 ||
+    globalGates.requiredTestPackages.length > 0 ||
+    globalGates.minTestFiles > 0 ||
+    globalGates.minTestCases > 0 ||
+    globalGates.failOnNoTests;
+  const hasGlobalHook = Boolean(String(state.hooks?.globalAcceptance || '').trim());
+  lines.push(`- Global Gate Enabled: ${hasGlobalGates || hasGlobalHook}`);
   lines.push(`- Current Task: ${current ? `${current.id} ${current.title}` : 'None'}`);
   if (current && Number.isFinite(Number(current.repairAttempts)) && Number(current.repairAttempts) > 0) {
     lines.push(`- Current Repair Attempts: ${current.repairAttempts}/${state.repairMaxAttempts || DEFAULT_REPAIR_MAX_ATTEMPTS}`);

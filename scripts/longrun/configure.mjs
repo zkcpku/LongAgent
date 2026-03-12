@@ -14,7 +14,9 @@ import {
   updateState,
   ensureDir,
   ensureDirExists,
-  resolvePathInput
+  resolvePathInput,
+  normalizeGates,
+  parseListArg
 } from './lib.mjs';
 
 const args = parseArgs(process.argv.slice(2));
@@ -32,17 +34,95 @@ if (!Object.prototype.hasOwnProperty.call(nextHooks, 'repair')) {
 if (!Object.prototype.hasOwnProperty.call(nextHooks, 'checkpoint')) {
   nextHooks.checkpoint = DEFAULT_CHECKPOINT_HOOK;
 }
+if (!Object.prototype.hasOwnProperty.call(nextHooks, 'acceptance')) {
+  nextHooks.acceptance = '';
+}
+if (!Object.prototype.hasOwnProperty.call(nextHooks, 'globalAcceptance')) {
+  nextHooks.globalAcceptance = '';
+}
 
-for (const hookName of ['planning', 'implement', 'verify', 'repair', 'visualize', 'checkpoint']) {
+for (const hookName of [
+  'planning',
+  'implement',
+  'verify',
+  'acceptance',
+  'repair',
+  'visualize',
+  'checkpoint',
+  'globalAcceptance'
+]) {
   if (hookName in args) {
     nextHooks[hookName] = String(args[hookName]);
   }
 }
 
 if (args.clear) {
-  for (const hookName of ['planning', 'implement', 'verify', 'repair', 'visualize', 'checkpoint']) {
+  for (const hookName of [
+    'planning',
+    'implement',
+    'verify',
+    'acceptance',
+    'repair',
+    'visualize',
+    'checkpoint',
+    'globalAcceptance'
+  ]) {
     nextHooks[hookName] = '';
   }
+}
+
+function parseBooleanArg(input, fallback = false) {
+  if (input == null) return fallback;
+  if (input === true) return true;
+  const text = String(input).trim().toLowerCase();
+  if (!text) return fallback;
+  if (['1', 'true', 'yes', 'on'].includes(text)) return true;
+  if (['0', 'false', 'no', 'off'].includes(text)) return false;
+  return fallback;
+}
+
+function parsePositiveInt(input) {
+  const value = Number(input);
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.floor(value);
+}
+
+const globalGateArgsPresent = [
+  'global-acceptance-cmd',
+  'global-required-files',
+  'global-forbid-patterns',
+  'global-required-test-packages',
+  'global-min-test-files',
+  'global-min-test-cases',
+  'global-fail-on-no-tests'
+].some((key) => key in args);
+
+let nextGlobalGates = normalizeGates(state.globalGates);
+if (globalGateArgsPresent) {
+  nextGlobalGates = normalizeGates({
+    ...nextGlobalGates,
+    cmd: args['global-acceptance-cmd'] != null
+      ? String(args['global-acceptance-cmd'])
+      : nextGlobalGates.cmd,
+    requiredFiles: args['global-required-files'] != null
+      ? parseListArg(args['global-required-files'])
+      : nextGlobalGates.requiredFiles,
+    forbidPatterns: args['global-forbid-patterns'] != null
+      ? parseListArg(args['global-forbid-patterns'])
+      : nextGlobalGates.forbidPatterns,
+    requiredTestPackages: args['global-required-test-packages'] != null
+      ? parseListArg(args['global-required-test-packages'])
+      : nextGlobalGates.requiredTestPackages,
+    minTestFiles: args['global-min-test-files'] != null
+      ? parsePositiveInt(args['global-min-test-files'])
+      : nextGlobalGates.minTestFiles,
+    minTestCases: args['global-min-test-cases'] != null
+      ? parsePositiveInt(args['global-min-test-cases'])
+      : nextGlobalGates.minTestCases,
+    failOnNoTests: args['global-fail-on-no-tests'] != null
+      ? parseBooleanArg(args['global-fail-on-no-tests'], nextGlobalGates.failOnNoTests)
+      : nextGlobalGates.failOnNoTests
+  });
 }
 
 if (args.milestone) {
@@ -86,7 +166,8 @@ if (!state.repairMaxAttempts || Number(state.repairMaxAttempts) <= 0) {
 }
 
 state = updateState(state, {
-  hooks: nextHooks
+  hooks: nextHooks,
+  globalGates: nextGlobalGates
 });
 
 writeJson(STATE_PATH, state);
@@ -97,9 +178,19 @@ appendEvent('hooks_configured', {
   hasPlanning: Boolean(nextHooks.planning),
   hasImplement: Boolean(nextHooks.implement),
   hasVerify: Boolean(nextHooks.verify),
+  hasAcceptance: Boolean(nextHooks.acceptance),
   hasRepair: Boolean(nextHooks.repair),
   hasVisualize: Boolean(nextHooks.visualize),
   hasCheckpoint: Boolean(nextHooks.checkpoint),
+  hasGlobalAcceptance: Boolean(nextHooks.globalAcceptance),
+  hasGlobalGates:
+    Boolean(nextGlobalGates.cmd) ||
+    nextGlobalGates.requiredFiles.length > 0 ||
+    nextGlobalGates.forbidPatterns.length > 0 ||
+    nextGlobalGates.requiredTestPackages.length > 0 ||
+    nextGlobalGates.minTestFiles > 0 ||
+    nextGlobalGates.minTestCases > 0 ||
+    nextGlobalGates.failOnNoTests,
   repairMaxAttempts: state.repairMaxAttempts
 });
 

@@ -47,7 +47,9 @@ const transitions = eventsInRange.filter((event) => event.type === 'phase_transi
 const hookSteps = eventsInRange.filter((event) => event.type === 'hook_executed');
 const planningEvents = eventsInRange.filter((event) => event.type === 'planning_evaluated');
 const verifyFailures = eventsInRange.filter((event) => event.type === 'verify_failed');
+const acceptanceFailures = eventsInRange.filter((event) => event.type === 'acceptance_failed');
 const repairs = eventsInRange.filter((event) => event.type === 'repair_succeeded');
+const globalGateEvaluations = eventsInRange.filter((event) => event.type === 'global_gate_evaluated');
 const durationInRangeMs = hookSteps.reduce((acc, event) => acc + (Number(event.durationMs) || 0), 0);
 const tokensInRange = hookSteps.reduce((acc, event) => acc + (Number(event.tokensUsed) || 0), 0);
 
@@ -134,11 +136,31 @@ if (verifyFailures.length === 0) {
 }
 
 console.log('');
+console.log(`acceptance failures in range: ${acceptanceFailures.length}`);
+for (const event of acceptanceFailures) {
+  const failures = Array.isArray(event.failures) ? event.failures.join('; ') : '';
+  console.log(`- ${event.at} ${event.taskId || 'n/a'} attempt ${event.attempt || '?'} / ${event.maxAttempts || '?'} ${failures}`);
+}
+if (acceptanceFailures.length === 0) {
+  console.log('- none');
+}
+
+console.log('');
 console.log(`repairs succeeded in range: ${repairs.length}`);
 for (const event of repairs) {
   console.log(`- ${event.at} ${event.taskId || 'n/a'} attempt ${event.attempt || '?'} / ${event.maxAttempts || '?'}`);
 }
 if (repairs.length === 0) {
+  console.log('- none');
+}
+
+console.log('');
+console.log(`global gate evaluations in range: ${globalGateEvaluations.length}`);
+for (const event of globalGateEvaluations) {
+  const failures = Array.isArray(event.failures) ? event.failures.length : 0;
+  console.log(`- ${event.at} ok=${Boolean(event.ok)} failures=${failures}`);
+}
+if (globalGateEvaluations.length === 0) {
   console.log('- none');
 }
 

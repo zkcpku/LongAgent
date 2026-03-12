@@ -14,10 +14,11 @@
 
 1. 队列驱动执行（`ops/queue.jsonl`）
 2. 持久化运行状态（`ops/state.json`）
-3. phase hook 自动化（`planning/implement/verify/repair/visualize/checkpoint`）
-4. verify 失败自动进入 repair 重试
+3. phase hook 自动化（`planning/implement/verify/acceptance/repair/visualize/checkpoint/globalAcceptance`）
+4. verify 或 acceptance 失败自动进入 repair 重试
 5. 步骤级统计（耗时、token、累计值）
 6. checkpoint 自动 git 提交（可选）
+7. 任务级/全局级硬性验收 gates
 
 ## 完整状态流转
 
@@ -27,21 +28,27 @@ flowchart TD
   B -->|成功| C["VERIFYING"]
   B -->|失败| X["BLOCKED"]
 
-  C -->|成功| D["VISUALIZING"]
+  C -->|成功| D["ACCEPTANCE"]
   C -->|失败且未超重试| E["REPAIRING"]
   C -->|失败且超重试| X
+
+  D -->|成功| F["VISUALIZING"]
+  D -->|失败且未超重试| E
+  D -->|失败且超重试| X
 
   E -->|成功| C
   E -->|失败| X
 
-  D -->|成功| F["CHECKPOINT"]
-  D -->|失败| X
-
-  F -->|成功| A
+  F -->|成功| G["CHECKPOINT"]
   F -->|失败| X
 
-  A -->|队列为空| G["DONE"]
-  G -->|新增任务| B
+  G -->|成功| A
+  G -->|失败| X
+
+  A -->|队列为空且全局 gate 通过| H["DONE"]
+  A -->|队列为空但全局 gate 失败| I["AUTO REPAIR TASK"]
+  I --> A
+  H -->|新增任务| B
 ```
 
 任务状态流转：
@@ -115,6 +122,8 @@ npm run longrun:unblock -- --to-in-progress --phase VERIFYING
 npm run longrun:configure -- \
   --implement 'codex exec "{{task_prompt}}" > "{{task_artifacts_dir}}/implement.log" 2>&1' \
   --verify 'npm test --if-present > "{{task_artifacts_dir}}/verify.log" 2>&1' \
+  --acceptance 'bash scripts/acceptance.sh > "{{task_artifacts_dir}}/acceptance.log" 2>&1' \
+  --globalAcceptance 'bash scripts/global-gate.sh > "{{artifacts_dir}}/_global/verify.log" 2>&1' \
   --repair 'codex exec "Fix {{task_artifacts_dir}}/verify.log" > "{{task_artifacts_dir}}/repair.log" 2>&1'
 ```
 
@@ -123,6 +132,35 @@ npm run longrun:configure -- \
 - `{{task_id}}`, `{{task_title}}`, `{{task_prompt}}`, `{{task_acceptance}}`
 - `{{workdir}}`, `{{artifacts_dir}}`, `{{task_artifacts_dir}}`
 - `{{queue_path}}`, `{{plan_path}}`, `{{phase}}`
+
+## 硬性验收 Gates
+
+任务级 gate（`longrun:enqueue`）：
+
+```bash
+npm run longrun:enqueue -- "任务标题" \
+  --prompt "..." \
+  --acceptance "..." \
+  --acceptance-cmd "pnpm -r test --if-present" \
+  --required-files "packages/ts-cli/src/index.ts,packages/ts-tui/src/index.ts" \
+  --forbid-patterns "not yet implemented,TODO\\(critical\\)" \
+  --required-test-packages "packages/ts-cli,packages/ts-tui" \
+  --min-test-files 10 \
+  --min-test-cases 100 \
+  --fail-on-no-tests true
+```
+
+全局 gate（队列空时执行）：
+
+```bash
+npm run longrun:configure -- \
+  --global-acceptance-cmd 'pnpm -r test --if-present > "{{artifacts_dir}}/_global/verify.log" 2>&1' \
+  --global-required-files "final-report.md" \
+  --global-forbid-patterns "not yet implemented" \
+  --global-required-test-packages "packages/ts-cli,packages/ts-tui" \
+  --global-min-test-cases 150 \
+  --global-fail-on-no-tests true
+```
 
 ## Git 行为
 

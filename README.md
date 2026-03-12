@@ -169,7 +169,7 @@ npm run longrun:configure -- \
 
 - `longrun:init` runs `git init` in `workdir` by default (`--git-init false` to disable).
 - Default `checkpoint` hook stages and commits changes if there are staged diffs.
-- Default commit message: `checkpoint(TXXXX): auto snapshot`.
+- Default commit message is auto-generated from task metadata + staged diff summary.
 
 ## License
 

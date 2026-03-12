@@ -166,7 +166,7 @@ npm run longrun:configure -- \
 
 - `longrun:init` 默认在 `workdir` 执行 `git init`（可 `--git-init false` 关闭）。
 - 默认 `checkpoint` 会在有改动时自动提交。
-- 默认 commit msg：`checkpoint(TXXXX): auto snapshot`。
+- 默认 commit msg 会根据任务信息和 staged diff 摘要自动生成。
 
 ## License
 

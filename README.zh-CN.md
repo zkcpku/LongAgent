@@ -145,6 +145,8 @@ npm run longrun:configure -- \
   --repair 'codex exec "Fix {{task_artifacts_dir}}/verify.log" > "{{task_artifacts_dir}}/repair.log" 2>&1'
 ```
 
+如果 prompt 里可能出现反引号或 `$()`，建议先把 prompt 写入文件，再用 `$(cat "$PROMPT_FILE")` 传给 `codex exec`，避免被 shell 误执行。
+
 `initPlanning` 只会在“队列为空且 `initPlanningDone=false`”时触发一次。可通过下面命令重置：
 
 ```bash

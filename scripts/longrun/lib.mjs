@@ -24,10 +24,18 @@ export const PHASES = [
 
 export const DEFAULT_REPAIR_MAX_ATTEMPTS = 3;
 export const DEFAULT_INIT_PLANNING_HOOK = '';
-export const DEFAULT_REPAIR_HOOK =
-  'codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "Verify failed for task {{task_id}} ({{task_title}}). Use {{task_artifacts_dir}}/verify.log to diagnose and fix the code in {{workdir}}. Respect acceptance: {{task_acceptance}}. Make the minimal fix and stop." > "{{task_artifacts_dir}}/repair.log" 2>&1';
-export const DEFAULT_PLANNING_HOOK =
-  'codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "You are managing a long-running migration task. Review current progress in {{workdir}}, then review {{plan_path}} and {{queue_path}}. Decide whether to update plan/queue. Rules: (1) keep completed/in-progress/blocked tasks untouched unless fixing obvious metadata mistakes, (2) add/split/reorder only pending tasks when needed, (3) keep queue JSONL schema unchanged, (4) avoid duplicate tasks, (5) if no changes are needed, do nothing. Current task: {{task_id}} {{task_title}}. Acceptance: {{task_acceptance}}." > "{{task_artifacts_dir}}/planning.log" 2>&1';
+export const DEFAULT_REPAIR_HOOK = `set -e
+PROMPT_FILE="{{task_artifacts_dir}}/repair.prompt.txt"
+cat > "$PROMPT_FILE" <<'__LR_REPAIR_PROMPT__'
+Verify failed for task {{task_id}} ({{task_title}}). Use {{task_artifacts_dir}}/verify.log to diagnose and fix the code in {{workdir}}. Respect acceptance: {{task_acceptance}}. Make the minimal fix and stop.
+__LR_REPAIR_PROMPT__
+codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "$(cat "$PROMPT_FILE")" > "{{task_artifacts_dir}}/repair.log" 2>&1`;
+export const DEFAULT_PLANNING_HOOK = `set -e
+PROMPT_FILE="{{task_artifacts_dir}}/planning.prompt.txt"
+cat > "$PROMPT_FILE" <<'__LR_PLANNING_PROMPT__'
+You are managing a long-running migration task. Review current progress in {{workdir}}, then review {{plan_path}} and {{queue_path}}. Decide whether to update plan/queue. Rules: (1) keep completed/in-progress/blocked tasks untouched unless fixing obvious metadata mistakes, (2) add/split/reorder only pending tasks when needed, (3) keep queue JSONL schema unchanged, (4) avoid duplicate tasks, (5) if no changes are needed, do nothing. Current task: {{task_id}} {{task_title}}. Acceptance: {{task_acceptance}}.
+__LR_PLANNING_PROMPT__
+codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "$(cat "$PROMPT_FILE")" > "{{task_artifacts_dir}}/planning.log" 2>&1`;
 export const DEFAULT_CHECKPOINT_HOOK =
   'set -e; if [ -d .git ]; then if ! git config user.email >/dev/null 2>&1; then git config user.email "codex-longrun@local"; fi; if ! git config user.name >/dev/null 2>&1; then git config user.name "Codex Longrun"; fi; git add -A; if git diff --cached --quiet; then echo "[checkpoint] no changes to commit"; else SHORTSTAT="$(git diff --cached --shortstat | sed \'s/^ *//;s/ *$//\')"; FILES="$(git diff --cached --name-only | head -n 6 | tr \'\\n\' \',\' | sed \'s/,$//\')"; MSG="checkpoint({{task_id}}): {{task_title}}"; if [ -n "$SHORTSTAT" ]; then MSG="$MSG | $SHORTSTAT"; fi; if [ -n "$FILES" ]; then MSG="$MSG | files: $FILES"; fi; MSG="$(printf \'%s\' "$MSG" | cut -c1-240)"; git commit -m "$MSG"; fi; else echo "[checkpoint] skip commit: no git repo in {{workdir}}"; fi; echo "$(date -Iseconds) {{task_id}} {{task_title}}" >> "{{artifacts_dir}}/timeline.log"';
 

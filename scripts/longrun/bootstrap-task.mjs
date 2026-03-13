@@ -447,19 +447,28 @@ if (!Number.isFinite(intervalSec) || intervalSec <= 0) {
 if (args.workdir && !fs.existsSync(workdir)) throw new Error(`workdir does not exist: ${workdir}`);
 if (args['artifacts-dir'] && !fs.existsSync(artifactsDir)) throw new Error(`artifacts-dir does not exist: ${artifactsDir}`);
 
-const implementHook = [
-  'set -e',
-  'LOG="{{task_artifacts_dir}}/implement.log"',
-  'PIPE="$(mktemp -u "${TMPDIR:-/tmp}/codex-implement.XXXXXX")"',
-  'mkfifo "$PIPE"',
-  'tee "$LOG" < "$PIPE" | sed -u \'s/^/[codex:implement] /\' &',
-  'STREAM_PID=$!',
-  'codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "{{task_prompt}}" > "$PIPE" 2>&1',
-  'RC=$?',
-  'wait "$STREAM_PID" || true',
-  'rm -f "$PIPE"',
-  'exit "$RC"'
-].join('; ');
+const planningHook = `set -e
+PROMPT_FILE="{{task_artifacts_dir}}/planning.prompt.txt"
+cat > "$PROMPT_FILE" <<'__LR_PLANNING_PROMPT__'
+You are managing a long-running migration task. Review current progress in {{workdir}}, then review {{plan_path}} and {{queue_path}}. Decide whether to update plan/queue. Rules: (1) keep completed/in-progress/blocked tasks untouched unless fixing obvious metadata mistakes, (2) add/split/reorder only pending tasks when needed, (3) keep queue JSONL schema unchanged, (4) avoid duplicate tasks, (5) if no changes are needed, do nothing. Current task: {{task_id}} {{task_title}}. Acceptance: {{task_acceptance}}.
+__LR_PLANNING_PROMPT__
+codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "$(cat "$PROMPT_FILE")" > "{{task_artifacts_dir}}/planning.log" 2>&1`;
+
+const implementHook = `set -e
+LOG="{{task_artifacts_dir}}/implement.log"
+PROMPT_FILE="{{task_artifacts_dir}}/implement.prompt.txt"
+cat > "$PROMPT_FILE" <<'__LR_IMPLEMENT_PROMPT__'
+{{task_prompt}}
+__LR_IMPLEMENT_PROMPT__
+PIPE="$(mktemp -u "\${TMPDIR:-/tmp}/codex-implement.XXXXXX")"
+mkfifo "$PIPE"
+tee "$LOG" < "$PIPE" | sed -u 's/^/[codex:implement] /' &
+STREAM_PID=$!
+codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "$(cat "$PROMPT_FILE")" > "$PIPE" 2>&1
+RC=$?
+wait "$STREAM_PID" || true
+rm -f "$PIPE"
+exit "$RC"`;
 
 const verifyHook = [
   'set -e',
@@ -478,19 +487,21 @@ const verifyHook = [
     + 'else echo "[verify] no built-in verifier matched; pass" >> "$LOG"; fi'
 ].join('; ');
 
-const repairHook = [
-  'set -e',
-  'LOG="{{task_artifacts_dir}}/repair.log"',
-  'PIPE="$(mktemp -u "${TMPDIR:-/tmp}/codex-repair.XXXXXX")"',
-  'mkfifo "$PIPE"',
-  'tee "$LOG" < "$PIPE" | sed -u \'s/^/[codex:repair] /\' &',
-  'STREAM_PID=$!',
-  'codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "Task {{task_id}} failed verify/acceptance. Read {{task_artifacts_dir}}/verify.log and acceptance artifacts; then fix code in {{workdir}} to satisfy: {{task_acceptance}}. Keep changes production-quality and minimal." > "$PIPE" 2>&1',
-  'RC=$?',
-  'wait "$STREAM_PID" || true',
-  'rm -f "$PIPE"',
-  'exit "$RC"'
-].join('; ');
+const repairHook = `set -e
+LOG="{{task_artifacts_dir}}/repair.log"
+PROMPT_FILE="{{task_artifacts_dir}}/repair.prompt.txt"
+cat > "$PROMPT_FILE" <<'__LR_REPAIR_PROMPT__'
+Task {{task_id}} failed verify/acceptance. Read {{task_artifacts_dir}}/verify.log and acceptance artifacts; then fix code in {{workdir}} to satisfy: {{task_acceptance}}. Keep changes production-quality and minimal.
+__LR_REPAIR_PROMPT__
+PIPE="$(mktemp -u "\${TMPDIR:-/tmp}/codex-repair.XXXXXX")"
+mkfifo "$PIPE"
+tee "$LOG" < "$PIPE" | sed -u 's/^/[codex:repair] /' &
+STREAM_PID=$!
+codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "$(cat "$PROMPT_FILE")" > "$PIPE" 2>&1
+RC=$?
+wait "$STREAM_PID" || true
+rm -f "$PIPE"
+exit "$RC"`;
 
 const visualizeHook = [
   '{',
@@ -555,6 +566,7 @@ try {
 
   console.log('[bootstrap] configure hooks/gates');
   const configureArgs = [
+    '--planning', planningHook,
     '--implement', implementHook,
     '--verify', verifyHook,
     '--acceptance', 'echo "[acceptance] declarative task gates" > "{{task_artifacts_dir}}/acceptance.log"',

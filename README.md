@@ -148,6 +148,8 @@ npm run longrun:configure -- \
   --repair 'codex exec "Fix {{task_artifacts_dir}}/verify.log" > "{{task_artifacts_dir}}/repair.log" 2>&1'
 ```
 
+If prompts may contain backticks or `$()`, prefer writing prompt text to a file and passing `$(cat "$PROMPT_FILE")` to `codex exec`.
+
 `initPlanning` runs once when queue is empty and `initPlanningDone` is false. Reset it with:
 
 ```bash

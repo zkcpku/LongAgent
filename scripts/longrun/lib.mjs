@@ -23,6 +23,7 @@ export const PHASES = [
 ];
 
 export const DEFAULT_REPAIR_MAX_ATTEMPTS = 3;
+export const DEFAULT_INIT_PLANNING_HOOK = '';
 export const DEFAULT_REPAIR_HOOK =
   'codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "Verify failed for task {{task_id}} ({{task_title}}). Use {{task_artifacts_dir}}/verify.log to diagnose and fix the code in {{workdir}}. Respect acceptance: {{task_acceptance}}. Make the minimal fix and stop." > "{{task_artifacts_dir}}/repair.log" 2>&1';
 export const DEFAULT_PLANNING_HOOK =
@@ -132,6 +133,7 @@ export function defaultState(options = {}) {
     phase: 'PLANNING',
     currentTaskId: null,
     blockedReason: null,
+    initPlanningDone: false,
     milestone: 'M1',
     repairMaxAttempts,
     lastRunAt: null,
@@ -142,6 +144,7 @@ export function defaultState(options = {}) {
       ...EMPTY_GATES
     },
     hooks: {
+      initPlanning: DEFAULT_INIT_PLANNING_HOOK,
       planning: DEFAULT_PLANNING_HOOK,
       implement: '',
       verify: '',

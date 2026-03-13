@@ -1,33 +1,33 @@
 {
   "version": 1,
-  "phase": "IMPLEMENTING",
-  "currentTaskId": "T0002",
+  "phase": "PLANNING",
+  "currentTaskId": null,
   "blockedReason": null,
+  "initPlanningDone": false,
   "milestone": "M1",
   "repairMaxAttempts": 3,
-  "lastRunAt": "2026-03-12T13:05:34.517Z",
-  "workdir": "/tmp/longrun-c-prod-work-tC54Ol",
-  "artifactsDir": "/tmp/longrun-c-prod-artifacts-41o26x",
-  "updatedAt": "2026-03-12T13:05:34.517Z",
+  "lastRunAt": null,
+  "workdir": "/var/folders/gk/nz4w45pn0lqdtwx3f79r9bfm0000gn/T/longrun-task-work-o6UGmi",
+  "artifactsDir": "/var/folders/gk/nz4w45pn0lqdtwx3f79r9bfm0000gn/T/longrun-task-artifacts-jUZvSe",
+  "updatedAt": "2026-03-13T13:38:16.332Z",
   "globalGates": {
     "cmd": "",
     "requiredFiles": [
-      "Cargo.toml",
-      "frontend",
-      "ir",
-      "passes",
-      "backend/x86_64",
-      "backend/arm64",
-      "backend/riscv",
-      "common",
-      "driver",
-      "tests/smoke.sh",
-      "perf-report.md"
+      "README.md",
+      "README.zh-CN.md",
+      "docs/game-design.md",
+      "src/game/scenes/MainGameScene.ts",
+      "src/game/systems/hookSystem.ts",
+      "src/ui/SettingsPanel.tsx",
+      "tests/e2e/desktop-gameplay.spec.ts",
+      "tests/integration/replayDeterminism.test.ts",
+      "scripts/release-check.mjs"
     ],
     "forbidPatterns": [
       "TODO\\(critical\\)",
-      "panic!\\(\"TODO\"\\)",
-      "unimplemented!\\(\\)"
+      "FIXME",
+      "not yet implemented",
+      "placeholder"
     ],
     "requiredTestPackages": [],
     "minTestFiles": 0,
@@ -35,13 +35,14 @@
     "failOnNoTests": false
   },
   "hooks": {
+    "initPlanning": "",
     "planning": "codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox \"You are managing a long-running migration task. Review current progress in {{workdir}}, then review {{plan_path}} and {{queue_path}}. Decide whether to update plan/queue. Rules: (1) keep completed/in-progress/blocked tasks untouched unless fixing obvious metadata mistakes, (2) add/split/reorder only pending tasks when needed, (3) keep queue JSONL schema unchanged, (4) avoid duplicate tasks, (5) if no changes are needed, do nothing. Current task: {{task_id}} {{task_title}}. Acceptance: {{task_acceptance}}.\" > \"{{task_artifacts_dir}}/planning.log\" 2>&1",
-    "implement": "set -e\nLOG=\"{{task_artifacts_dir}}/implement.log\"\nPIPE=\"$(mktemp -u \"${TMPDIR:-/tmp}/codex-implement.XXXXXX\")\"\nmkfifo \"$PIPE\"\ntee \"$LOG\" < \"$PIPE\" | sed -u 's/^/[codex:implement] /' &\nSTREAM_PID=$!\ncodex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox \"{{task_prompt}}\" > \"$PIPE\" 2>&1\nRC=$?\nwait \"$STREAM_PID\" || true\nrm -f \"$PIPE\"\nexit \"$RC\"",
-    "verify": "set -e\nLOG=\"{{task_artifacts_dir}}/verify.log\"\n: > \"$LOG\"\n\nif [ ! -f Cargo.toml ]; then\n  echo \"[verify] missing Cargo.toml\" >> \"$LOG\"\n  exit 1\nfi\n\nif ! command -v cargo >/dev/null 2>&1; then\n  echo \"[verify] cargo not found\" >> \"$LOG\"\n  exit 1\nfi\n\necho \"[verify] cargo fmt --all --check\" >> \"$LOG\"\ncargo fmt --all --check >> \"$LOG\" 2>&1 || true\n\necho \"[verify] cargo test --workspace\" >> \"$LOG\"\ncargo test --workspace >> \"$LOG\" 2>&1\n\necho \"[verify] cargo build --workspace\" >> \"$LOG\"\ncargo build --workspace >> \"$LOG\" 2>&1\n\nif [ -f tests/smoke.sh ]; then\n  echo \"[verify] tests/smoke.sh\" >> \"$LOG\"\n  bash tests/smoke.sh >> \"$LOG\" 2>&1\nfi\n\nif [ -f tests/conformance/run.sh ]; then\n  echo \"[verify] tests/conformance/run.sh\" >> \"$LOG\"\n  bash tests/conformance/run.sh >> \"$LOG\" 2>&1 || true\nfi",
+    "implement": "set -e; LOG=\"{{task_artifacts_dir}}/implement.log\"; PIPE=\"$(mktemp -u \"${TMPDIR:-/tmp}/codex-implement.XXXXXX\")\"; mkfifo \"$PIPE\"; tee \"$LOG\" < \"$PIPE\" | sed -u 's/^/[codex:implement] /' &; STREAM_PID=$!; codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox \"{{task_prompt}}\" > \"$PIPE\" 2>&1; RC=$?; wait \"$STREAM_PID\" || true; rm -f \"$PIPE\"; exit \"$RC\"",
+    "verify": "set -e; LOG=\"{{task_artifacts_dir}}/verify.log\"; : > \"$LOG\"; echo \"[verify] auto verifier start\" >> \"$LOG\"; if [ -f \"verify.sh\" ]; then echo \"[verify] bash verify.sh\" >> \"$LOG\"; bash verify.sh >> \"$LOG\" 2>&1; elif [ -f \"package.json\" ] && command -v npm >/dev/null 2>&1; then echo \"[verify] npm test --if-present\" >> \"$LOG\"; npm test --if-present >> \"$LOG\" 2>&1; echo \"[verify] npm run -s build --if-present\" >> \"$LOG\"; npm run -s build --if-present >> \"$LOG\" 2>&1; elif [ -f \"Cargo.toml\" ] && command -v cargo >/dev/null 2>&1; then echo \"[verify] cargo test --workspace\" >> \"$LOG\"; cargo test --workspace >> \"$LOG\" 2>&1; echo \"[verify] cargo build --workspace\" >> \"$LOG\"; cargo build --workspace >> \"$LOG\" 2>&1; elif { [ -f \"pyproject.toml\" ] || [ -f \"requirements.txt\" ]; } && command -v pytest >/dev/null 2>&1; then echo \"[verify] pytest\" >> \"$LOG\"; pytest >> \"$LOG\" 2>&1; else echo \"[verify] no built-in verifier matched; pass\" >> \"$LOG\"; fi",
     "acceptance": "echo \"[acceptance] declarative task gates\" > \"{{task_artifacts_dir}}/acceptance.log\"",
-    "repair": "set -e\nLOG=\"{{task_artifacts_dir}}/repair.log\"\nPIPE=\"$(mktemp -u \"${TMPDIR:-/tmp}/codex-repair.XXXXXX\")\"\nmkfifo \"$PIPE\"\ntee \"$LOG\" < \"$PIPE\" | sed -u 's/^/[codex:repair] /' &\nSTREAM_PID=$!\ncodex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox \"Task {{task_id}} failed verify/acceptance. Read {{task_artifacts_dir}}/verify.log and acceptance artifacts; then fix code in {{workdir}} to satisfy: {{task_acceptance}}. Keep changes production-quality and minimal.\" > \"$PIPE\" 2>&1\nRC=$?\nwait \"$STREAM_PID\" || true\nrm -f \"$PIPE\"\nexit \"$RC\"",
-    "visualize": "{\n  echo \"# {{task_id}} {{task_title}}\"\n  echo \"time: $(date -Iseconds)\"\n  echo\n  echo \"## Workdir\"\n  pwd\n  echo\n  echo \"## Tree(depth=2)\"\n  find . -maxdepth 2 -mindepth 1 | sort\n  echo\n  echo \"## Git Status\"\n  if [ -d .git ]; then\n    git status --short || true\n  else\n    echo \"(no git repo)\"\n  fi\n} > \"{{task_artifacts_dir}}/visualize.md\"",
+    "repair": "set -e; LOG=\"{{task_artifacts_dir}}/repair.log\"; PIPE=\"$(mktemp -u \"${TMPDIR:-/tmp}/codex-repair.XXXXXX\")\"; mkfifo \"$PIPE\"; tee \"$LOG\" < \"$PIPE\" | sed -u 's/^/[codex:repair] /' &; STREAM_PID=$!; codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox \"Task {{task_id}} failed verify/acceptance. Read {{task_artifacts_dir}}/verify.log and acceptance artifacts; then fix code in {{workdir}} to satisfy: {{task_acceptance}}. Keep changes production-quality and minimal.\" > \"$PIPE\" 2>&1; RC=$?; wait \"$STREAM_PID\" || true; rm -f \"$PIPE\"; exit \"$RC\"",
+    "visualize": "{; echo \"# {{task_id}} {{task_title}}\"; echo \"time: $(date -Iseconds)\"; echo; echo \"## Workdir\"; pwd; echo; echo \"## Tree(depth=2)\"; find . -maxdepth 2 -mindepth 1 | sort; echo; echo \"## Git Status\"; if [ -d .git ]; then git status --short || true; else echo \"(no git repo)\"; fi; } > \"{{task_artifacts_dir}}/visualize.md\"",
     "checkpoint": "set -e; if [ -d .git ]; then if ! git config user.email >/dev/null 2>&1; then git config user.email \"codex-longrun@local\"; fi; if ! git config user.name >/dev/null 2>&1; then git config user.name \"Codex Longrun\"; fi; git add -A; if git diff --cached --quiet; then echo \"[checkpoint] no changes to commit\"; else SHORTSTAT=\"$(git diff --cached --shortstat | sed 's/^ *//;s/ *$//')\"; FILES=\"$(git diff --cached --name-only | head -n 6 | tr '\\n' ',' | sed 's/,$//')\"; MSG=\"checkpoint({{task_id}}): {{task_title}}\"; if [ -n \"$SHORTSTAT\" ]; then MSG=\"$MSG | $SHORTSTAT\"; fi; if [ -n \"$FILES\" ]; then MSG=\"$MSG | files: $FILES\"; fi; MSG=\"$(printf '%s' \"$MSG\" | cut -c1-240)\"; git commit -m \"$MSG\"; fi; else echo \"[checkpoint] skip commit: no git repo in {{workdir}}\"; fi; echo \"$(date -Iseconds) {{task_id}} {{task_title}}\" >> \"{{artifacts_dir}}/timeline.log\"",
-    "globalAcceptance": "set -e\nmkdir -p \"{{artifacts_dir}}/_global\"\nLOG=\"{{artifacts_dir}}/_global/verify.log\"\n: > \"$LOG\"\n\nif [ ! -f Cargo.toml ]; then\n  echo \"missing Cargo.toml\" >> \"$LOG\"\n  exit 1\nfi\n\ncargo test --workspace >> \"$LOG\" 2>&1\ncargo build --workspace >> \"$LOG\" 2>&1\n\nif [ -f tests/smoke.sh ]; then\n  bash tests/smoke.sh >> \"$LOG\" 2>&1\nelse\n  echo \"missing tests/smoke.sh\" >> \"$LOG\"\n  exit 1\nfi\n\nif [ -f scripts/bench.sh ]; then\n  bash scripts/bench.sh >> \"$LOG\" 2>&1 || true\nfi"
+    "globalAcceptance": "set -e; mkdir -p \"{{artifacts_dir}}/_global\"; LOG=\"{{artifacts_dir}}/_global/verify.log\"; : > \"$LOG\"; echo \"[global] auto gate start\" >> \"$LOG\"; if [ -f \"verify.sh\" ]; then echo \"[global] bash verify.sh\" >> \"$LOG\"; bash verify.sh >> \"$LOG\" 2>&1; elif [ -f \"package.json\" ] && command -v npm >/dev/null 2>&1; then echo \"[global] npm test --if-present\" >> \"$LOG\"; npm test --if-present >> \"$LOG\" 2>&1; echo \"[global] npm run -s build --if-present\" >> \"$LOG\"; npm run -s build --if-present >> \"$LOG\" 2>&1; elif [ -f \"Cargo.toml\" ] && command -v cargo >/dev/null 2>&1; then echo \"[global] cargo test --workspace\" >> \"$LOG\"; cargo test --workspace >> \"$LOG\" 2>&1; echo \"[global] cargo build --workspace\" >> \"$LOG\"; cargo build --workspace >> \"$LOG\" 2>&1; elif { [ -f \"pyproject.toml\" ] || [ -f \"requirements.txt\" ]; } && command -v pytest >/dev/null 2>&1; then echo \"[global] pytest\" >> \"$LOG\"; pytest >> \"$LOG\" 2>&1; else echo \"[global] no built-in global verifier matched; pass\" >> \"$LOG\"; fi"
   }
 }

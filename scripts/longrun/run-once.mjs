@@ -6,6 +6,7 @@ import {
   OPS_DIR,
   ROOT,
   DEFAULT_ARTIFACTS_DIR,
+  DEFAULT_INIT_PLANNING_HOOK,
   DEFAULT_PLANNING_HOOK,
   DEFAULT_REPAIR_HOOK,
   DEFAULT_REPAIR_MAX_ATTEMPTS,
@@ -54,6 +55,7 @@ function contextFrom(task, state, runtime) {
     ops_dir: runtime.opsDir,
     queue_path: runtime.queuePath,
     plan_path: runtime.planPath,
+    prompt_path: runtime.promptPath,
     workdir: runtime.workdir,
     artifacts_dir: runtime.artifactsDir,
     task_artifacts_dir: runtime.taskArtifactsDir || '',
@@ -360,6 +362,14 @@ try {
   if (!state.hooks || typeof state.hooks !== 'object') {
     state = updateState(state, { hooks: {} });
   }
+  if (!Object.prototype.hasOwnProperty.call(state.hooks, 'initPlanning')) {
+    state = updateState(state, {
+      hooks: {
+        ...state.hooks,
+        initPlanning: DEFAULT_INIT_PLANNING_HOOK
+      }
+    });
+  }
   if (!Object.prototype.hasOwnProperty.call(state.hooks, 'repair')) {
     state = updateState(state, {
       hooks: {
@@ -395,6 +405,9 @@ try {
   if (!state.repairMaxAttempts || Number(state.repairMaxAttempts) <= 0) {
     state = updateState(state, { repairMaxAttempts: DEFAULT_REPAIR_MAX_ATTEMPTS });
   }
+  if (!Object.prototype.hasOwnProperty.call(state, 'initPlanningDone')) {
+    state = updateState(state, { initPlanningDone: false });
+  }
   if (!state.globalGates || typeof state.globalGates !== 'object') {
     state = updateState(state, { globalGates: normalizeGates({}) });
   } else {
@@ -412,6 +425,90 @@ try {
   let currentTask = getCurrentTask(queue, state);
 
   if (!currentTask) {
+    const hasInitPlanningHook = Boolean(String(state.hooks?.initPlanning || '').trim());
+    const shouldRunInitPlanning = hasInitPlanningHook && !Boolean(state.initPlanningDone) && queue.length === 0;
+    let skipGlobalEvaluation = false;
+
+    if (shouldRunInitPlanning) {
+      const initArtifactsDir = path.join(artifactsDir, '_initPlanning');
+      ensureDir(initArtifactsDir);
+      const initRuntime = {
+        runnerRoot: ROOT,
+        opsDir: OPS_DIR,
+        queuePath: QUEUE_PATH,
+        planPath: path.join(OPS_DIR, 'Plan.md'),
+        promptPath: path.join(OPS_DIR, 'Prompt.md'),
+        workdir,
+        artifactsDir,
+        taskArtifactsDir: initArtifactsDir
+      };
+
+      const initResult = runHook(state.hooks.initPlanning, contextFrom(null, state, initRuntime), {
+        cwd: workdir,
+        liveOutput: true
+      });
+      printHookResult('initPlanning', initResult);
+
+      appendEvent('init_planning_executed', {
+        phase: state.phase,
+        hook: 'initPlanning',
+        skipped: initResult.skipped,
+        ok: initResult.ok,
+        command: initResult.command || '',
+        cwd: workdir,
+        startedAt: initResult.startedAt || null,
+        endedAt: initResult.endedAt || null,
+        durationMs: initResult.durationMs ?? 0,
+        exitCode: initResult.exitCode ?? 0
+      });
+
+      if (!initResult.ok) {
+        state = updateState(state, {
+          phase: 'BLOCKED',
+          blockedReason: 'initPlanning failed',
+          currentTaskId: null,
+          lastRunAt: new Date().toISOString()
+        });
+        appendEvent('runner_blocked', {
+          reason: 'initPlanning failed',
+          command: initResult.command || '',
+          exitCode: initResult.exitCode ?? null
+        });
+        saveAll(state, queue);
+        abort('blocked: initPlanning failed', 2);
+      }
+
+      const refreshedQueue = readJsonl(QUEUE_PATH);
+      if (Array.isArray(refreshedQueue)) {
+        queue = refreshedQueue;
+      }
+      currentTask = getCurrentTask(queue, state);
+
+      state = updateState(state, {
+        initPlanningDone: true,
+        phase: 'PLANNING',
+        currentTaskId: null,
+        blockedReason: null,
+        lastRunAt: new Date().toISOString()
+      });
+      appendEvent('init_planning_completed', {
+        queueSize: queue.length,
+        hasTask: Boolean(currentTask)
+      });
+      saveAll(state, queue);
+
+      if (currentTask) {
+        skipGlobalEvaluation = true;
+        console.log(`initPlanning produced tasks, next task ${currentTask.id}`);
+      }
+    }
+
+    if (skipGlobalEvaluation) {
+      // Queue has been seeded by initPlanning. Process starts from next iteration.
+      currentTask = null;
+    }
+
+    if (!skipGlobalEvaluation) {
     const globalGates = normalizeGates(state.globalGates);
     const hasGlobalDeclarative = hasConfiguredGates(globalGates);
     const hasGlobalHook = Boolean(String(state.hooks?.globalAcceptance || '').trim());
@@ -435,6 +532,7 @@ try {
         opsDir: OPS_DIR,
         queuePath: QUEUE_PATH,
         planPath: path.join(OPS_DIR, 'Plan.md'),
+        promptPath: path.join(OPS_DIR, 'Prompt.md'),
         workdir,
         artifactsDir,
         taskArtifactsDir: globalArtifactsDir
@@ -553,6 +651,7 @@ try {
         console.log(`global gate failed, auto task enqueued: ${autoTask.id}`);
       }
     }
+    }
   } else {
     const taskArtifactsDir = path.join(artifactsDir, currentTask.id);
     ensureDir(taskArtifactsDir);
@@ -561,6 +660,7 @@ try {
       opsDir: OPS_DIR,
       queuePath: QUEUE_PATH,
       planPath: path.join(OPS_DIR, 'Plan.md'),
+      promptPath: path.join(OPS_DIR, 'Prompt.md'),
       workdir,
       artifactsDir,
       taskArtifactsDir

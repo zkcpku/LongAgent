@@ -11,7 +11,8 @@
     "longrun:run": "node scripts/longrun/run-forever.mjs",
     "longrun:status": "node scripts/longrun/status.mjs",
     "longrun:report": "node scripts/longrun/report.mjs",
-    "longrun:unblock": "node scripts/longrun/unblock.mjs"
+    "longrun:unblock": "node scripts/longrun/unblock.mjs",
+    "longrun:bootstrap:task": "node scripts/longrun/bootstrap-task.mjs"
   },
   "keywords": [
     "longrun",

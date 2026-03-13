@@ -15,7 +15,7 @@ Core capabilities:
 
 1. Queue-driven execution (`ops/queue.jsonl`)
 2. Durable runner state (`ops/state.json`)
-3. Hook-based automation (`planning`, `implement`, `verify`, `acceptance`, `repair`, `visualize`, `checkpoint`, `globalAcceptance`)
+3. Hook-based automation (`initPlanning`, `planning`, `implement`, `verify`, `acceptance`, `repair`, `visualize`, `checkpoint`, `globalAcceptance`)
 4. Auto-repair loop when verification or acceptance fails
 5. Step metrics (`durationMs`, `tokensUsed`, cumulative totals)
 6. Optional git checkpoint commit per task
@@ -108,6 +108,23 @@ npm run longrun:enqueue -- "Task title" --priority P1 --acceptance "Expected res
 npm run longrun:run -- --interval 20
 ```
 
+## One-Command Bootstrap (Any Task)
+
+```bash
+npm run longrun:bootstrap:task -- \
+  --requirement "Your task requirement text" \
+  --decompose codex \
+  --start-runner false
+```
+
+`--max-tasks` is optional. If omitted, decomposition is uncapped.
+
+Then start the runner:
+
+```bash
+npm run longrun:run -- --interval 20
+```
+
 ## Runtime Commands
 
 ```bash
@@ -123,6 +140,7 @@ Configure hooks for automation:
 
 ```bash
 npm run longrun:configure -- \
+  --init-planning 'codex exec "Decompose requirement in {{prompt_path}} into queue at {{queue_path}}" > "{{artifacts_dir}}/_initPlanning.log" 2>&1' \
   --implement 'codex exec "{{task_prompt}}" > "{{task_artifacts_dir}}/implement.log" 2>&1' \
   --verify 'npm test --if-present > "{{task_artifacts_dir}}/verify.log" 2>&1' \
   --acceptance 'bash scripts/acceptance.sh > "{{task_artifacts_dir}}/acceptance.log" 2>&1' \
@@ -130,11 +148,17 @@ npm run longrun:configure -- \
   --repair 'codex exec "Fix {{task_artifacts_dir}}/verify.log" > "{{task_artifacts_dir}}/repair.log" 2>&1'
 ```
 
+`initPlanning` runs once when queue is empty and `initPlanningDone` is false. Reset it with:
+
+```bash
+npm run longrun:configure -- --reset-init-planning true
+```
+
 Template vars include:
 
 - `{{task_id}}`, `{{task_title}}`, `{{task_prompt}}`, `{{task_acceptance}}`
 - `{{workdir}}`, `{{artifacts_dir}}`, `{{task_artifacts_dir}}`
-- `{{queue_path}}`, `{{plan_path}}`, `{{phase}}`
+- `{{queue_path}}`, `{{plan_path}}`, `{{prompt_path}}`, `{{phase}}`
 
 ## Hard Gates
 

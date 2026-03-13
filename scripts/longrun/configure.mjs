@@ -2,6 +2,7 @@
 import {
   DEFAULT_ARTIFACTS_DIR,
   DEFAULT_CHECKPOINT_HOOK,
+  DEFAULT_INIT_PLANNING_HOOK,
   DEFAULT_PLANNING_HOOK,
   DEFAULT_REPAIR_HOOK,
   DEFAULT_REPAIR_MAX_ATTEMPTS,
@@ -20,11 +21,27 @@ import {
 } from './lib.mjs';
 
 const args = parseArgs(process.argv.slice(2));
+if (args['init-planning'] != null && args.initPlanning == null) {
+  args.initPlanning = args['init-planning'];
+}
 let state = requireState();
+
+function normalizeHookValue(input) {
+  if (input == null || input === true) return '';
+  const text = String(input);
+  const lowered = text.trim().toLowerCase();
+  if (lowered === 'off' || lowered === 'none' || lowered === 'false') {
+    return '';
+  }
+  return text;
+}
 
 const nextHooks = {
   ...state.hooks
 };
+if (!Object.prototype.hasOwnProperty.call(nextHooks, 'initPlanning')) {
+  nextHooks.initPlanning = DEFAULT_INIT_PLANNING_HOOK;
+}
 if (!Object.prototype.hasOwnProperty.call(nextHooks, 'planning')) {
   nextHooks.planning = DEFAULT_PLANNING_HOOK;
 }
@@ -42,6 +59,7 @@ if (!Object.prototype.hasOwnProperty.call(nextHooks, 'globalAcceptance')) {
 }
 
 for (const hookName of [
+  'initPlanning',
   'planning',
   'implement',
   'verify',
@@ -52,12 +70,13 @@ for (const hookName of [
   'globalAcceptance'
 ]) {
   if (hookName in args) {
-    nextHooks[hookName] = String(args[hookName]);
+    nextHooks[hookName] = normalizeHookValue(args[hookName]);
   }
 }
 
 if (args.clear) {
   for (const hookName of [
+    'initPlanning',
     'planning',
     'implement',
     'verify',
@@ -151,6 +170,13 @@ if (args['repair-max-attempts']) {
   state = updateState(state, { repairMaxAttempts: Math.floor(parsed) });
 }
 
+if (args['reset-init-planning'] != null) {
+  const shouldReset = parseBooleanArg(args['reset-init-planning'], true);
+  if (shouldReset) {
+    state = updateState(state, { initPlanningDone: false });
+  }
+}
+
 if (!state.workdir) {
   state = updateState(state, { workdir: ROOT });
 }
@@ -176,6 +202,7 @@ appendEvent('hooks_configured', {
   workdir: state.workdir,
   artifactsDir: state.artifactsDir,
   hasPlanning: Boolean(nextHooks.planning),
+  hasInitPlanning: Boolean(nextHooks.initPlanning),
   hasImplement: Boolean(nextHooks.implement),
   hasVerify: Boolean(nextHooks.verify),
   hasAcceptance: Boolean(nextHooks.acceptance),

@@ -14,7 +14,7 @@
 
 1. 队列驱动执行（`ops/queue.jsonl`）
 2. 持久化运行状态（`ops/state.json`）
-3. phase hook 自动化（`planning/implement/verify/acceptance/repair/visualize/checkpoint/globalAcceptance`）
+3. phase hook 自动化（`initPlanning/planning/implement/verify/acceptance/repair/visualize/checkpoint/globalAcceptance`）
 4. verify 或 acceptance 失败自动进入 repair 重试
 5. 步骤级统计（耗时、token、累计值）
 6. checkpoint 自动 git 提交（可选）
@@ -107,6 +107,23 @@ npm run longrun:enqueue -- "任务标题" --priority P1 --acceptance "验收标�
 npm run longrun:run -- --interval 20
 ```
 
+## 一键启动（任意任务）
+
+```bash
+npm run longrun:bootstrap:task -- \
+  --requirement "你的任务需求描述" \
+  --decompose codex \
+  --start-runner false
+```
+
+`--max-tasks` 是可选参数；不传表示不限制分解任务数。
+
+然后启动 runner：
+
+```bash
+npm run longrun:run -- --interval 20
+```
+
 ## 常用命令
 
 ```bash
@@ -120,6 +137,7 @@ npm run longrun:unblock -- --to-in-progress --phase VERIFYING
 
 ```bash
 npm run longrun:configure -- \
+  --init-planning 'codex exec "读取 {{prompt_path}} 并分解任务写入 {{queue_path}}" > "{{artifacts_dir}}/_initPlanning.log" 2>&1' \
   --implement 'codex exec "{{task_prompt}}" > "{{task_artifacts_dir}}/implement.log" 2>&1' \
   --verify 'npm test --if-present > "{{task_artifacts_dir}}/verify.log" 2>&1' \
   --acceptance 'bash scripts/acceptance.sh > "{{task_artifacts_dir}}/acceptance.log" 2>&1' \
@@ -127,11 +145,17 @@ npm run longrun:configure -- \
   --repair 'codex exec "Fix {{task_artifacts_dir}}/verify.log" > "{{task_artifacts_dir}}/repair.log" 2>&1'
 ```
 
+`initPlanning` 只会在“队列为空且 `initPlanningDone=false`”时触发一次。可通过下面命令重置：
+
+```bash
+npm run longrun:configure -- --reset-init-planning true
+```
+
 可用模板变量：
 
 - `{{task_id}}`, `{{task_title}}`, `{{task_prompt}}`, `{{task_acceptance}}`
 - `{{workdir}}`, `{{artifacts_dir}}`, `{{task_artifacts_dir}}`
-- `{{queue_path}}`, `{{plan_path}}`, `{{phase}}`
+- `{{queue_path}}`, `{{plan_path}}`, `{{prompt_path}}`, `{{phase}}`
 
 ## 硬性验收 Gates
 

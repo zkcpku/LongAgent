@@ -1,5 +1,5 @@
 {
-  "summary": "面向当前仓库的一套可顺序执行的生产级计划：先将仓库升级为可构建、可测试的 TypeScript 游戏工程并冻结“贪吃蛇 + 黄金矿工”混合玩法规格，再实现确定性核心系统、华丽表现与关卡循环，最后通过单元测试、回放一致性、Playwright 端到端、性能/鲁棒性/无障碍门禁和发布检查完成严格验证。",
+  "summary": "一个面向自动编码代理的分阶段实施队列：在当前仓库中落地一个华丽、可发布、强验证的“贪吃蛇 × 黄金矿工”单页游戏，从脚手架与规则定义开始，逐步完成核心玩法、演出系统、内容关卡、自动化验证、性能与可访问性硬门槛，以及最终发布文档与 CI。",
   "milestones": [
     {
       "id": "M1",
@@ -20,242 +20,203 @@
   ],
   "tasks": [
     {
-      "title": "搭建 Phaser + Vite + TypeScript 游戏工程与质量脚手架",
+      "title": "建立前端游戏脚手架并接入质量工具链",
       "milestone": "M1",
       "priority": "P0",
-      "acceptance": "仓库新增可运行的前端游戏工程，同时保留现有 `longrun:*` 脚本；`lint`、`typecheck`、`build` 均通过，且浏览器可加载最小游戏入口。",
-      "prompt": "在当前仓库内新增基于 Vite + TypeScript + Phaser 的网页游戏工程，不破坏现有 `longrun:*` npm scripts。补齐 `dev`、`build`、`preview`、`lint`、`typecheck`、`test:unit`、`test:e2e`、`test:ci` 脚本，接入 ESLint、Vitest、Playwright，并创建一个最小可启动的游戏入口、资源加载器和页面壳层。要求 Node 环境下可直接运行全部基础命令。",
+      "acceptance": "在不破坏现有 `longrun:*` 脚本的前提下，仓库新增可运行的 Vite + React + TypeScript 游戏前端，包含 lint、unit test、e2e test、build 脚本，首页 smoke test 通过。",
+      "prompt": "扩展根 `package.json`，保留现有 longrun 脚本并新增 `dev`、`build`、`preview`、`lint`、`test`、`test:e2e`。创建 `index.html`、`src/main.tsx`、`src/App.tsx`、全局样式、TypeScript/Vite/Vitest/Playwright/ESLint 配置，确保项目可作为单页游戏运行。添加最小 smoke test，验证应用能渲染标题和启动入口。",
       "requiredFiles": [
         "package.json",
+        "index.html",
         "tsconfig.json",
         "vite.config.ts",
-        "index.html",
-        "src/main.ts",
-        "src/game/bootstrap.ts",
-        "eslint.config.js",
         "vitest.config.ts",
-        "playwright.config.ts"
+        "playwright.config.ts",
+        "eslint.config.js",
+        "src/main.tsx",
+        "src/App.tsx",
+        "src/styles/global.css",
+        "src/App.test.tsx"
       ],
-      "acceptanceCmd": "npm run lint && npm run typecheck && npm run build",
-      "forbidPatterns": [
-        "TODO\\(critical\\)"
-      ],
+      "acceptanceCmd": "npm run lint && npm run build && npm run test -- --run",
+      "forbidPatterns": [],
       "requiredTestPackages": [],
-      "minTestFiles": 0,
-      "minTestCases": 0,
-      "failOnNoTests": false
+      "minTestFiles": 1,
+      "minTestCases": 1,
+      "failOnNoTests": true
     },
     {
-      "title": "固化混合玩法规格、数值平衡与资源清单",
+      "title": "定义贪吃蛇黄金矿工的产品规则与确定性数据契约",
       "milestone": "M1",
       "priority": "P0",
-      "acceptance": "玩法文档、关卡参数和资源清单齐备，明确写出可实现规则：蛇在二维矿区移动，蛇头可按瞄准方向发射黄金矿工式钩爪抓取矿物/道具；抓回重物会影响移动节奏；关卡有时间限制和目标分数；回合结束进入商店购买升级；所有关键参数以类型安全配置落盘。",
-      "prompt": "新增设计与配置文件，直接定义后续实现所需的具体规则和参数，不留待定项。至少包含：1. 操作映射；2. 胜负条件；3. 蛇长度、速度、碰撞和受击规则；4. 钩爪发射、命中、拉回、空钩、冷却和与蛇头的关系；5. 矿物、宝箱、炸弹、怪物、时间奖励等对象种类与权重；6. 3 个递进关卡目标；7. 商店升级项及数值；8. 美术/音频资源清单与占位资源策略。参数必须拆到 `src/config` 下并可通过类型检查。",
+      "acceptance": "存在清晰可执行的游戏规则文档与类型化配置，明确核心循环、操作方式、计分、关卡目标、失败条件、特效目标与移动端要求，并由测试验证随机种子和关卡配置可复现。",
+      "prompt": "编写 `docs/game-design.md`，将玩法定义为可直接编码的混合规则：蛇在网格中移动采矿，头部可发射矿工钩索抓取黄金/矿石，拉回重量影响速度或窗口判定，存在障碍、危险物、道具、关卡目标、倒计时、结算与升级。实现 `src/game/types.ts`、`src/game/config.ts`、`src/game/rng.ts`、`src/game/content/levels.ts`，并增加针对类型契约、随机种子复现、关卡目标解析的测试。",
       "requiredFiles": [
         "docs/game-design.md",
-        "src/config/gameBalance.ts",
-        "src/config/assetManifest.ts",
-        "src/config/featureFlags.ts",
-        "src/config/levelDefinitions.ts"
+        "src/game/types.ts",
+        "src/game/config.ts",
+        "src/game/rng.ts",
+        "src/game/content/levels.ts",
+        "src/game/config.test.ts",
+        "src/game/rng.test.ts"
       ],
-      "acceptanceCmd": "npm run typecheck",
-      "forbidPatterns": [
-        "待定",
-        "TBD"
-      ],
+      "acceptanceCmd": "npm run test -- --run src/game",
+      "forbidPatterns": [],
       "requiredTestPackages": [],
-      "minTestFiles": 0,
-      "minTestCases": 0,
-      "failOnNoTests": false
+      "minTestFiles": 2,
+      "minTestCases": 10,
+      "failOnNoTests": true
     },
     {
-      "title": "实现确定性核心系统：蛇移动、钩爪、矿区生成、计时与结算",
+      "title": "实现确定性的核心游戏引擎与状态机",
       "milestone": "M2",
       "priority": "P0",
-      "acceptance": "纯逻辑层可驱动完整一局：蛇移动、转向、长度变化、出钩/收钩、矿物生成与抓取、倒计时、得分、关卡成功和失败判定均可在不依赖渲染的情况下运行；固定随机种子下结果稳定一致。",
-      "prompt": "实现纯逻辑域模型，不依赖 Phaser 渲染。至少拆分 `gameState`、`snakeSystem`、`hookSystem`、`resourceFieldSystem`、`scoringSystem`、`roundSystem`。禁止在核心逻辑中直接使用 `Math.random()`，改为注入可播种随机源。编写覆盖边界条件的单元测试，至少验证：蛇转向限制、身体碰撞、重物拖拽减速、空钩回收、时间耗尽失败、达标通关、炸弹/奖励结算。",
+      "acceptance": "纯逻辑层已实现蛇移动、身体碰撞、挖掘/阻挡判定、钩索发射与回收、矿物重量影响、计分连击、计时与关卡胜负状态切换，并以场景回放测试覆盖关键路径。",
+      "prompt": "实现纯函数或 reducer 驱动的核心逻辑，拆分为 `engine`、`reducer` 和系统模块，例如移动、钩索、采集、计分、关卡状态。禁止将渲染或 DOM 逻辑耦合进核心引擎。补充场景测试：基础移动、转向限制、自撞、钩索锁定黄金、重物拉回、炸药或危险物命中、时间耗尽、达成目标过关。",
       "requiredFiles": [
-        "src/game/core/gameState.ts",
-        "src/game/core/random.ts",
-        "src/game/systems/snakeSystem.ts",
-        "src/game/systems/hookSystem.ts",
-        "src/game/systems/resourceFieldSystem.ts",
-        "src/game/systems/scoringSystem.ts",
-        "src/game/systems/roundSystem.ts",
-        "tests/unit/coreSystems.test.ts"
+        "src/game/engine.ts",
+        "src/game/reducer.ts",
+        "src/game/systems/movement.ts",
+        "src/game/systems/hook.ts",
+        "src/game/systems/scoring.ts",
+        "src/game/engine.test.ts",
+        "src/game/scenarios.test.ts"
       ],
-      "acceptanceCmd": "npm run test:unit",
+      "acceptanceCmd": "npm run test -- --run src/game",
       "forbidPatterns": [
         "Math\\.random\\("
       ],
-      "requiredTestPackages": [
-        "."
+      "requiredTestPackages": [],
+      "minTestFiles": 4,
+      "minTestCases": 25,
+      "failOnNoTests": true
+    },
+    {
+      "title": "构建华丽的游戏渲染层、HUD 与多端输入界面",
+      "milestone": "M2",
+      "priority": "P0",
+      "acceptance": "应用具备标题页、游戏主场景、HUD、暂停/失败/胜利弹层、触控操作与键盘操作，视觉上具有明确主题、分层背景、动画和响应式布局，并有组件测试覆盖关键交互。",
+      "prompt": "基于 React 实现游戏壳层与表现层，包括 `GameShell`、`CanvasScene`、HUD、菜单、帮助说明、暂停与结束弹层、触控方向与发钩按钮。样式需采用明确的金矿/洞窟视觉主题，包含背景层次、发光、粒子承载位、动态 UI 和 390px 移动端适配。添加组件测试验证启动、暂停、恢复、重新开始、打开设置等关键操作。",
+      "requiredFiles": [
+        "src/App.tsx",
+        "src/components/GameShell.tsx",
+        "src/components/CanvasScene.tsx",
+        "src/components/Hud.tsx",
+        "src/components/TouchControls.tsx",
+        "src/components/GameShell.test.tsx",
+        "src/components/Hud.test.tsx",
+        "src/styles/theme.css"
       ],
-      "minTestFiles": 1,
+      "acceptanceCmd": "npm run lint && npm run build && npm run test -- --run src/components",
+      "forbidPatterns": [],
+      "requiredTestPackages": [],
+      "minTestFiles": 3,
+      "minTestCases": 12,
+      "failOnNoTests": true
+    },
+    {
+      "title": "加入粒子、音效、镜头反馈与本地持久化系统",
+      "milestone": "M2",
+      "priority": "P1",
+      "acceptance": "游戏具备采矿爆闪、拉回命中特效、镜头震动/停顿反馈、背景音乐与音效管理、静音与减弱动效开关，以及本地进度和最高分保存，并有异常回退测试。",
+      "prompt": "实现演出与系统层：`particles`、`camera`、`audioManager`、`persistence`。为拾取、重物拉回、爆炸、受伤、过关等事件接入演出。设置中提供静音、减少动态效果、高对比度等选项；`localStorage` 不可用时需优雅降级。补充测试覆盖音频禁用、本地存储异常、设置恢复、最高分与当前进度持久化。",
+      "requiredFiles": [
+        "src/effects/particles.ts",
+        "src/effects/camera.ts",
+        "src/audio/audioManager.ts",
+        "src/state/persistence.ts",
+        "src/audio/audioManager.test.ts",
+        "src/state/persistence.test.ts"
+      ],
+      "acceptanceCmd": "npm run test -- --run src/audio src/state src/effects",
+      "forbidPatterns": [],
+      "requiredTestPackages": [],
+      "minTestFiles": 4,
       "minTestCases": 14,
       "failOnNoTests": true
     },
     {
-      "title": "实现主场景、桌面/移动输入、碰撞反馈与 HUD",
-      "milestone": "M2",
-      "priority": "P0",
-      "acceptance": "玩家可在主场景中使用键盘/鼠标与触屏完成移动、瞄准、发钩、回收、暂停、继续和结算；HUD 正确展示目标分数、当前分数、剩余时间、蛇长度、连击和当前升级状态。",
-      "prompt": "实现 Phaser 主场景与输入层，把纯逻辑状态接入实时渲染。桌面端支持 WASD/方向键移动、鼠标瞄准、点击或空格发钩；移动端支持虚拟摇杆和操作按钮。加入稳定的测试选择器或状态暴露接口，便于后续 E2E 验证。单元测试至少覆盖输入映射、碰撞结算、暂停恢复、HUD 数值同步和场景状态切换。",
-      "requiredFiles": [
-        "src/game/scenes/MainGameScene.ts",
-        "src/game/input/desktopControls.ts",
-        "src/game/input/mobileControls.ts",
-        "src/game/ui/HudLayer.ts",
-        "src/game/render/entitySprites.ts",
-        "tests/unit/inputAndHud.test.ts"
-      ],
-      "acceptanceCmd": "npm run test:unit",
-      "forbidPatterns": [],
-      "requiredTestPackages": [
-        "."
-      ],
-      "minTestFiles": 2,
-      "minTestCases": 22,
-      "failOnNoTests": true
-    },
-    {
-      "title": "实现关卡循环、商店升级、风险机制与新手引导",
-      "milestone": "M2",
-      "priority": "P0",
-      "acceptance": "至少提供 3 个有难度递增的关卡；回合间存在商店可购买升级；存在石块、炸弹、怪物或陷阱等风险物；首次进入游戏有可跳过的新手引导；升级对蛇、钩爪或得分产生可验证影响。",
-      "prompt": "实现关卡系统、回合结算和商店界面。升级项至少包含移动速度、钩爪长度、收回速度、磁吸或爆破类强化中的 4 类；风险物至少包含会扣分/扣时间/缩短蛇身/阻挡行动中的 3 类。实现首次游玩引导遮罩，说明移动、瞄准、发钩、结算和商店。测试需覆盖关卡推进、升级生效、失败分支、引导状态持久化和商店购买约束。",
-      "requiredFiles": [
-        "src/game/scenes/IntermissionScene.ts",
-        "src/game/scenes/TutorialScene.ts",
-        "src/game/systems/levelSystem.ts",
-        "src/game/systems/upgradeSystem.ts",
-        "src/game/systems/hazardSystem.ts",
-        "tests/unit/progression.test.ts"
-      ],
-      "acceptanceCmd": "npm run test:unit",
-      "forbidPatterns": [],
-      "requiredTestPackages": [
-        "."
-      ],
-      "minTestFiles": 3,
-      "minTestCases": 30,
-      "failOnNoTests": true
-    },
-    {
-      "title": "实现华丽表现层、音频系统、菜单界面与本地持久化",
-      "milestone": "M2",
-      "priority": "P1",
-      "acceptance": "游戏具备明显的华丽视觉表现：动态背景、矿物发光、拖尾、粒子、镜头震动、命中/爆炸反馈、关卡过场与结算动画、音效与音乐管理；提供开始菜单、设置面板、高分榜与本地存档。",
-      "prompt": "围绕既有玩法补齐表现层并保持可测。至少实现：分层背景、粒子特效、拖尾、屏幕震动、关键事件动画、BGM/SFX 管理、主菜单、设置面板、高分榜与本地存档。设置项至少包含主音量、音效音量、震动/特效开关、清档。存档中至少保存最高分、已解锁关卡、引导完成状态和设置。测试需覆盖持久化序列化/反序列化、设置读写、高分更新和特效开关回退。",
-      "requiredFiles": [
-        "src/game/fx/particleFx.ts",
-        "src/game/fx/cameraFx.ts",
-        "src/game/audio/audioManager.ts",
-        "src/ui/MenuOverlay.tsx",
-        "src/ui/SettingsPanel.tsx",
-        "src/storage/persistence.ts",
-        "src/styles/theme.css",
-        "tests/unit/persistence.test.ts"
-      ],
-      "acceptanceCmd": "npm run test:unit && npm run build",
-      "forbidPatterns": [],
-      "requiredTestPackages": [
-        "."
-      ],
-      "minTestFiles": 4,
-      "minTestCases": 36,
-      "failOnNoTests": true
-    },
-    {
-      "title": "补齐集成测试与输入回放一致性验证",
+      "title": "交付完整关卡内容、教程流程与成长系统",
       "milestone": "M3",
       "priority": "P0",
-      "acceptance": "固定随机种子与固定输入回放时，关键回合结果完全一致；集成测试覆盖开始游戏、通关、失败、商店购买、进入下一关、重新开始等主流程。",
-      "prompt": "基于确定性核心状态增加集成测试和回放框架。新增输入事件录制/回放能力，并提供至少 2 份固定 replay fixture。验证相同 seed + 相同输入下，分数、蛇长度、矿区对象状态、升级状态、关卡结果完全一致；不同 replay 能稳定覆盖成功与失败两条分支。把 replay 结果做成断言，不允许只输出日志。",
+      "acceptance": "至少交付 3 个手工设计关卡和 1 个挑战/无尽模式，包含教程引导、升级或道具系统、危险物递进、关卡结算与解锁逻辑，且平衡逻辑可由回归测试验证。",
+      "prompt": "扩展内容层，增加教程关、至少 3 个正式关卡、1 个挑战或无尽模式，设计不同矿物、石块、炸药、洞穴生物或塌陷机制，以及速度/钩索/容量/护盾等成长项。完成关卡结算与解锁流程，并测试关卡目标阈值、成长解锁、存档兼容性和失败后重试逻辑。",
       "requiredFiles": [
-        "src/game/testing/replayRunner.ts",
-        "tests/integration/gameFlow.test.ts",
-        "tests/integration/replayDeterminism.test.ts",
-        "tests/fixtures/replays/seed-001-clear-level.json",
-        "tests/fixtures/replays/seed-002-fail-round.json"
+        "src/game/content/levels.ts",
+        "src/game/content/powerups.ts",
+        "src/components/TutorialOverlay.tsx",
+        "src/components/LevelSummary.tsx",
+        "src/game/progression.test.ts",
+        "src/game/balance.test.ts"
       ],
-      "acceptanceCmd": "npm run test:unit",
+      "acceptanceCmd": "npm run test -- --run src/game src/components",
       "forbidPatterns": [],
-      "requiredTestPackages": [
-        "."
-      ],
-      "minTestFiles": 7,
-      "minTestCases": 46,
+      "requiredTestPackages": [],
+      "minTestFiles": 5,
+      "minTestCases": 20,
       "failOnNoTests": true
     },
     {
-      "title": "编写 Playwright 端到端验证，覆盖桌面与移动端真实操作",
+      "title": "建立端到端与视觉回归测试套件",
       "milestone": "M3",
       "priority": "P0",
-      "acceptance": "端到端测试在桌面与移动视口下均可通过，覆盖首屏加载、开始一局、完成首关、商店购买、打开设置、暂停恢复、失败后重开和存档恢复。",
-      "prompt": "使用 Playwright 编写真实浏览器流程测试，分别覆盖桌面和移动端。不要只做截图或快照，必须断言可见文案、分数变化、关卡状态、设置持久化和重新打开页面后的恢复结果。若场景动画可能导致不稳定，增加测试专用开关以固定 seed、缩短动画或禁用非必要特效，但不能绕开实际交互路径。",
+      "acceptance": "Playwright 能稳定覆盖桌面与移动端的首页进入、教程、正常游戏、暂停恢复、通关、失败重开、设置持久化流程，并产出标题页/游戏中/结算页的视觉快照断言。",
+      "prompt": "实现可重复的 e2e 方案：通过固定随机种子、debug 控制或测试模式稳定驱动游戏。创建桌面键盘流、移动端触控流、暂停与设置、结算与重开、视觉快照用例。Playwright 配置需自动拉起本地服务器，保证 `npm run test:e2e` 可直接执行。",
       "requiredFiles": [
-        "tests/e2e/desktop-gameplay.spec.ts",
-        "tests/e2e/mobile-controls.spec.ts",
-        "tests/e2e/settings-and-restart.spec.ts",
-        "tests/e2e/save-restore.spec.ts"
+        "playwright.config.ts",
+        "tests/e2e/home.spec.ts",
+        "tests/e2e/gameplay.spec.ts",
+        "tests/e2e/mobile.spec.ts",
+        "tests/e2e/visual.spec.ts"
       ],
       "acceptanceCmd": "npm run test:e2e",
       "forbidPatterns": [],
-      "requiredTestPackages": [
-        "."
-      ],
-      "minTestFiles": 11,
-      "minTestCases": 56,
+      "requiredTestPackages": [],
+      "minTestFiles": 4,
+      "minTestCases": 12,
       "failOnNoTests": true
     },
     {
-      "title": "加入性能预算、资源降级、错误恢复与无障碍冒烟检查",
+      "title": "增加可访问性与性能硬门槛",
       "milestone": "M3",
       "priority": "P1",
-      "acceptance": "`test:ci` 会执行类型检查、单元/集成、E2E、性能冒烟、资源降级和无障碍检查；主场景满足帧率预算；资源缺失时不会白屏；菜单与设置支持键盘基础导航。",
-      "prompt": "增加性能与鲁棒性验证。实现脚本或测试测量首屏加载和主循环性能，给出明确预算，例如开发构建下首屏可交互时间与平均帧间隔阈值；模拟贴图或音频资源缺失时验证占位资源和错误提示；增加基础无障碍检查，确保主菜单、设置和结算面板支持键盘导航、可见焦点和必要 ARIA 标签。将这些检查并入 `test:ci`。",
+      "acceptance": "项目具备菜单与设置页的可访问性测试、键盘无障碍导航、焦点可见性、减少动态效果路径，以及渲染预算或构建预算检测；明显性能或 a11y 退化会使测试失败。",
+      "prompt": "加入 `axe` 或等效可访问性检查，验证标题页、设置页、结算页的语义与可操作性；增加渲染性能指标工具，限制关键场景更新成本或构建体积；补充 390px 和 1440px 布局检查。测试必须对 a11y 阻塞项和预算超标给出失败结果。",
       "requiredFiles": [
-        "scripts/perf-smoke.mjs",
-        "tests/integration/performanceBudget.test.ts",
-        "tests/integration/assetFallback.test.ts",
-        "tests/e2e/accessibility-smoke.spec.ts",
-        "tests/e2e/error-recovery.spec.ts"
+        "tests/a11y/app.a11y.test.ts",
+        "tests/perf/render-budget.test.ts",
+        "src/utils/performance.ts",
+        "docs/qa/performance-budget.md"
       ],
-      "acceptanceCmd": "npm run test:ci",
+      "acceptanceCmd": "npm run test -- --run tests/a11y tests/perf && npm run build",
       "forbidPatterns": [],
-      "requiredTestPackages": [
-        "."
-      ],
-      "minTestFiles": 14,
-      "minTestCases": 64,
+      "requiredTestPackages": [],
+      "minTestFiles": 2,
+      "minTestCases": 6,
       "failOnNoTests": true
     },
     {
-      "title": "完善发布文档、CI、QA 清单与最终验收脚本",
+      "title": "完成发布文档、CI 流水线与最终全量验收",
       "milestone": "M4",
       "priority": "P0",
-      "acceptance": "存在完整的中英文 README、玩法说明、QA 清单、发布说明与 CI；最终验收脚本可无人工干预地检查必需文件、禁用模式和关键命令通过。",
-      "prompt": "补齐面向发布的文档与自动化。更新中英文 README，写清安装、开发、测试、玩法、控制方式、移动端支持、部署方式和已知约束；新增 QA 清单与 release notes；配置 CI 执行 `lint`、`typecheck`、`test:ci`、`build`；实现最终发布检查脚本，至少校验必需文件存在、关键命令成功、禁用模式不存在。若需要部署静态站点，补充对应构建输出说明。",
+      "acceptance": "README、中文 README、QA 文档和 CI 已就绪；CI 会执行 lint、unit、e2e、build；仓库内不存在关键占位实现或严重待办；最终全量命令通过。",
+      "prompt": "更新中英文 README，说明玩法、控制方式、架构分层、运行命令、测试命令和已知约束。补充 `docs/qa/manual-checklist.md`，覆盖桌面/移动端、音频、减弱动效、暂停恢复、存档恢复、离线静态预览等手工核对项。添加 GitHub Actions 或等效 CI，执行 `npm run lint`、`npm run test -- --run`、`npm run test:e2e`、`npm run build`。清理关键 TODO/FIXME/未实现占位。",
       "requiredFiles": [
         "README.md",
         "README.zh-CN.md",
-        "docs/qa-checklist.md",
-        "docs/release-notes.md",
-        ".github/workflows/ci.yml",
-        "scripts/release-check.mjs"
+        "docs/qa/manual-checklist.md",
+        ".github/workflows/ci.yml"
       ],
-      "acceptanceCmd": "npm run test:ci && node scripts/release-check.mjs",
+      "acceptanceCmd": "npm run lint && npm run test -- --run && npm run test:e2e && npm run build",
       "forbidPatterns": [
         "TODO\\(critical\\)",
-        "FIXME"
+        "FIXME",
+        "throw new Error\\([\"']Not implemented"
       ],
-      "requiredTestPackages": [
-        "."
-      ],
-      "minTestFiles": 14,
-      "minTestCases": 64,
-      "failOnNoTests": true
+      "requiredTestPackages": [],
+      "minTestFiles": 0,
+      "minTestCases": 0,
+      "failOnNoTests": false
     }
   ],
   "globalGates": {
@@ -263,19 +224,17 @@
       "README.md",
       "README.zh-CN.md",
       "docs/game-design.md",
-      "src/game/scenes/MainGameScene.ts",
-      "src/game/systems/hookSystem.ts",
-      "src/storage/persistence.ts",
-      "tests/integration/replayDeterminism.test.ts",
-      "tests/e2e/desktop-gameplay.spec.ts",
-      ".github/workflows/ci.yml",
-      "scripts/release-check.mjs"
+      "docs/qa/manual-checklist.md",
+      "playwright.config.ts",
+      "tests/e2e/gameplay.spec.ts",
+      "tests/e2e/visual.spec.ts",
+      ".github/workflows/ci.yml"
     ],
     "forbidPatterns": [
       "TODO\\(critical\\)",
       "FIXME",
-      "待定",
-      "TBD"
+      "throw new Error\\([\"']Not implemented",
+      "not yet implemented"
     ]
   }
 }

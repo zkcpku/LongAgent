@@ -1,20 +1,21 @@
 # Long Running Status Snapshot
 
-- Updated: 2026-03-13T13:54:36.276Z
-- Phase: IMPLEMENTING
-- Workdir: /var/folders/gk/nz4w45pn0lqdtwx3f79r9bfm0000gn/T/longrun-task-work-65T7gs
-- Artifacts Dir: /var/folders/gk/nz4w45pn0lqdtwx3f79r9bfm0000gn/T/longrun-task-artifacts-IhLz0L
+- Updated: 2026-03-13T14:35:17.508Z
+- Phase: REPAIRING
+- Workdir: /var/folders/gk/nz4w45pn0lqdtwx3f79r9bfm0000gn/T/longrun-task-work-jZUD4i
+- Artifacts Dir: /var/folders/gk/nz4w45pn0lqdtwx3f79r9bfm0000gn/T/longrun-task-artifacts-5f93ZY
 - Global Gate Enabled: true
-- Current Task: T0001 搭建 Phaser + Vite + TypeScript 游戏工程与质量脚手架
-- Current Step Count: 0
-- Current Total Duration Ms: 0
-- Current Total Tokens Used: 0
-- Queue: pending=10, in_progress=0, completed=0, blocked=0
+- Current Task: T0001 建立前端游戏脚手架并接入质量工具链
+- Current Repair Attempts: 2/3
+- Current Step Count: 8
+- Current Total Duration Ms: 551338
+- Current Total Tokens Used: 58403
+- Queue: pending=8, in_progress=1, completed=0, blocked=0
 
 ## Next Tasks
 
-- T0001 搭建 Phaser + Vite + TypeScript 游戏工程与质量脚手架
-- T0002 固化混合玩法规格、数值平衡与资源清单
-- T0003 实现确定性核心系统：蛇移动、钩爪、矿区生成、计时与结算
-- T0004 实现主场景、桌面/移动输入、碰撞反馈与 HUD
-- T0005 实现关卡循环、商店升级、风险机制与新手引导
+- T0002 定义贪吃蛇黄金矿工的产品规则与确定性数据契约
+- T0003 实现确定性的核心游戏引擎与状态机
+- T0004 构建华丽的游戏渲染层、HUD 与多端输入界面
+- T0005 加入粒子、音效、镜头反馈与本地持久化系统
+- T0006 交付完整关卡内容、教程流程与成长系统

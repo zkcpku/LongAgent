@@ -503,21 +503,19 @@ wait "$STREAM_PID" || true
 rm -f "$PIPE"
 exit "$RC"`;
 
-const visualizeHook = [
-  '{',
-  'echo "# {{task_id}} {{task_title}}"',
-  'echo "time: $(date -Iseconds)"',
-  'echo',
-  'echo "## Workdir"',
-  'pwd',
-  'echo',
-  'echo "## Tree(depth=2)"',
-  'find . -maxdepth 2 -mindepth 1 | sort',
-  'echo',
-  'echo "## Git Status"',
-  'if [ -d .git ]; then git status --short || true; else echo "(no git repo)"; fi',
-  '} > "{{task_artifacts_dir}}/visualize.md"'
-].join('; ');
+const visualizeHook = `{
+echo "# {{task_id}} {{task_title}}"
+echo "time: $(date -Iseconds)"
+echo
+echo "## Workdir"
+pwd
+echo
+echo "## Tree(depth=2)"
+find . -maxdepth 2 -mindepth 1 | sort
+echo
+echo "## Git Status"
+if [ -d .git ]; then git status --short || true; else echo "(no git repo)"; fi
+} > "{{task_artifacts_dir}}/visualize.md"`;
 
 const globalHook = [
   'set -e',

@@ -9,7 +9,7 @@ Deliver the input requirement with production-grade quality.
 ## Decomposition
 - Mode: codex
 - Max Tasks: unlimited
-- Generated Tasks: 10
+- Generated Tasks: 9
 
 ## Constraints
 - Keep commits small and reversible.

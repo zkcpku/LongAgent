@@ -159,6 +159,11 @@ npm run longrun:configure -- --reset-init-planning true
 - `{{workdir}}`, `{{artifacts_dir}}`, `{{task_artifacts_dir}}`
 - `{{queue_path}}`, `{{plan_path}}`, `{{prompt_path}}`, `{{phase}}`
 
+bootstrap 默认的 `visualize` 现在会产出：
+- `visualize.md`（快照）
+- `git-status.txt` 和 `changed-files.txt`（确定性输入）
+- `skills-proposal.md`（参考 Agents SDK 的 skill 候选，best-effort，不阻塞主流程）
+
 ## 硬性验收 Gates
 
 任务级 gate（`longrun:enqueue`）：

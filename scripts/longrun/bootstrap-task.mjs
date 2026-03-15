@@ -503,7 +503,11 @@ wait "$STREAM_PID" || true
 rm -f "$PIPE"
 exit "$RC"`;
 
-const visualizeHook = `{
+const visualizeHook = `set -e
+OUT_DIR="{{task_artifacts_dir}}"
+mkdir -p "$OUT_DIR"
+
+{
 echo "# {{task_id}} {{task_title}}"
 echo "time: $(date -Iseconds)"
 echo
@@ -515,7 +519,51 @@ find . -maxdepth 2 -mindepth 1 | sort
 echo
 echo "## Git Status"
 if [ -d .git ]; then git status --short || true; else echo "(no git repo)"; fi
-} > "{{task_artifacts_dir}}/visualize.md"`;
+} > "$OUT_DIR/visualize.md"
+
+# Deterministic inputs for skills-oriented analysis.
+if [ -d .git ]; then
+  git status --short > "$OUT_DIR/git-status.txt" || true
+  git diff --name-only > "$OUT_DIR/changed-files.txt" || true
+else
+  : > "$OUT_DIR/git-status.txt"
+  : > "$OUT_DIR/changed-files.txt"
+fi
+
+# Skills proposal inspired by Agents SDK workflow design.
+if command -v codex >/dev/null 2>&1; then
+  PROMPT_FILE="$OUT_DIR/skills-visualize.prompt.txt"
+  cat > "$PROMPT_FILE" <<'__LR_SKILLS_PROMPT__'
+You are preparing a skills-oriented intermediate delivery for a long-running agent task.
+
+Inputs:
+- Task: {{task_id}} {{task_title}}
+- Acceptance: {{task_acceptance}}
+- Workdir: {{workdir}}
+- Snapshot markdown: {{task_artifacts_dir}}/visualize.md
+- Changed files list: {{task_artifacts_dir}}/changed-files.txt
+
+Return markdown with:
+1) Candidate Skills (1-3):
+- name
+- description (must include trigger conditions for routing)
+- why_now
+- suggested_SKILL_md_path
+2) Model vs Script Split for each skill:
+- what should stay model-driven
+- what should become deterministic script steps
+3) Next Hook Up:
+- exact AGENTS.md if/then trigger lines to activate these skills
+
+Keep it concrete and repo-local.
+__LR_SKILLS_PROMPT__
+
+  codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "$(cat "$PROMPT_FILE")" > "$OUT_DIR/skills-proposal.md" 2> "$OUT_DIR/skills-proposal.err" || {
+    echo "[skills-proposal] codex failed; see skills-proposal.err" > "$OUT_DIR/skills-proposal.md"
+  }
+else
+  echo "[skills-proposal] codex not found; skipped" > "$OUT_DIR/skills-proposal.md"
+fi`;
 
 const globalHook = [
   'set -e',

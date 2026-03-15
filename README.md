@@ -162,6 +162,11 @@ Template vars include:
 - `{{workdir}}`, `{{artifacts_dir}}`, `{{task_artifacts_dir}}`
 - `{{queue_path}}`, `{{plan_path}}`, `{{prompt_path}}`, `{{phase}}`
 
+Default `visualize` in bootstrap now emits:
+- `visualize.md` (snapshot)
+- `git-status.txt` and `changed-files.txt` (deterministic inputs)
+- `skills-proposal.md` (Agents SDK inspired skill candidates; best-effort, non-blocking)
+
 ## Hard Gates
 
 Per-task gates are supported via `longrun:enqueue`:

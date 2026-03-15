@@ -179,11 +179,18 @@ function hasConfiguredGates(rawGates) {
   );
 }
 
-function parseVerifyLogStats(verifyLogPath) {
-  const text = readTextIfExists(verifyLogPath);
-  const lines = text ? text.split(/\r?\n/) : [];
+function parseVerifyLogStats(logPathsInput) {
+  const rawPaths = Array.isArray(logPathsInput) ? logPathsInput : [logPathsInput];
+  const logPaths = rawPaths.filter((p) => Boolean(String(p || '').trim()));
+  const lines = [];
+  for (const logPath of logPaths) {
+    const text = readTextIfExists(logPath);
+    if (!text) continue;
+    lines.push(...text.split(/\r?\n/));
+  }
   const noTestPackages = new Set();
   const seenPackages = new Set();
+  const uniqueTestFiles = new Set();
   let noTestsCount = 0;
   let testFiles = 0;
   let testCases = 0;
@@ -208,10 +215,30 @@ function parseVerifyLogStats(verifyLogPath) {
     if (testMatch) {
       testCases += Number(testMatch[1]) || 0;
     }
+
+    const vitestFileMatch = line.match(/^\s*✓\s+([^\s]+\.(?:test|spec)\.[cm]?[jt]sx?)/);
+    if (vitestFileMatch?.[1]) {
+      uniqueTestFiles.add(vitestFileMatch[1]);
+    }
+
+    const playwrightSpecMatch = line.match(/›\s+([^\s:]+(?:\.test|\.spec)\.[cm]?[jt]sx?)(?::\d+:\d+)?\s+›/);
+    if (playwrightSpecMatch?.[1]) {
+      uniqueTestFiles.add(playwrightSpecMatch[1]);
+    }
+
+    const playwrightPassedMatch = line.match(/^\s*(\d+)\s+passed\s*\(/i);
+    if (playwrightPassedMatch) {
+      testCases += Number(playwrightPassedMatch[1]) || 0;
+    }
+  }
+
+  if (uniqueTestFiles.size > 0) {
+    testFiles = Math.max(testFiles, uniqueTestFiles.size);
   }
 
   return {
-    verifyLogPath,
+    verifyLogPath: logPaths[0] || '',
+    logPaths,
     noTestsCount,
     noTestPackages: [...noTestPackages],
     seenPackages: [...seenPackages],
@@ -265,9 +292,10 @@ function evaluateDeclarativeGates(rawGates, options = {}) {
   const gates = normalizeGates(rawGates);
   const workdir = options.workdir || ROOT;
   const verifyLogPath = options.verifyLogPath || '';
+  const additionalLogPaths = Array.isArray(options.additionalLogPaths) ? options.additionalLogPaths : [];
   const failures = [];
   const diagnostics = {
-    verify: parseVerifyLogStats(verifyLogPath),
+    verify: parseVerifyLogStats([verifyLogPath, ...additionalLogPaths]),
     patternChecks: []
   };
 
@@ -887,6 +915,7 @@ try {
           command: '',
           exitCode: 0
         };
+        const acceptanceCmdLogPath = path.join(taskArtifactsDir, 'acceptance-cmd.log');
         let acceptanceCmdResult = {
           ok: true,
           skipped: true,
@@ -903,13 +932,14 @@ try {
         if (taskGates.cmd) {
           acceptanceCmdResult = runPhaseHook('acceptance_cmd', {
             blockOnFailure: false,
-            commandOverride: taskGates.cmd
+            commandOverride: `set -e; (${taskGates.cmd}) > "${acceptanceCmdLogPath}" 2>&1`
           });
         }
 
         const declarativeResult = evaluateDeclarativeGates(taskGates, {
           workdir,
-          verifyLogPath: path.join(taskArtifactsDir, 'verify.log')
+          verifyLogPath: path.join(taskArtifactsDir, 'verify.log'),
+          additionalLogPaths: [acceptanceCmdLogPath]
         });
         const acceptanceFailures = [];
         if (!acceptanceHookResult.ok) {

@@ -60,6 +60,7 @@ function contextFrom(task, state, runtime) {
     artifacts_dir: runtime.artifactsDir,
     task_artifacts_dir: runtime.taskArtifactsDir || '',
     verify_log_path: runtime.taskArtifactsDir ? path.join(runtime.taskArtifactsDir, 'verify.log') : '',
+    acceptance_failures_path: runtime.taskArtifactsDir ? path.join(runtime.taskArtifactsDir, 'acceptance-failures.txt') : '',
     phase: state.phase || ''
   };
 }
@@ -963,6 +964,18 @@ try {
         });
 
         if (acceptanceFailures.length > 0) {
+          const failureSummary = [
+            `Acceptance gate failures for task ${currentTask.id} (${currentTask.title}):`,
+            ...acceptanceFailures.map((f, i) => `  ${i + 1}. ${f}`),
+            '',
+            'Diagnostics:',
+            JSON.stringify(declarativeResult.diagnostics, null, 2)
+          ].join('\n');
+          fs.writeFileSync(
+            path.join(taskArtifactsDir, 'acceptance-failures.txt'),
+            failureSummary,
+            'utf8'
+          );
           routeFailureToRepair('acceptance_failed', {
             command: acceptanceCmdResult.command || acceptanceHookResult.command || '',
             exitCode: acceptanceCmdResult.exitCode ?? acceptanceHookResult.exitCode ?? 1,

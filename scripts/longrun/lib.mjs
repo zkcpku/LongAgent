@@ -26,8 +26,21 @@ export const DEFAULT_REPAIR_MAX_ATTEMPTS = 3;
 export const DEFAULT_INIT_PLANNING_HOOK = '';
 export const DEFAULT_REPAIR_HOOK = `set -e
 PROMPT_FILE="{{task_artifacts_dir}}/repair.prompt.txt"
-cat > "$PROMPT_FILE" <<'__LR_REPAIR_PROMPT__'
-Verify failed for task {{task_id}} ({{task_title}}). Use {{task_artifacts_dir}}/verify.log to diagnose and fix the code in {{workdir}}. Respect acceptance: {{task_acceptance}}. Make the minimal fix and stop.
+ACCEPTANCE_FAILURES=""
+if [ -f "{{acceptance_failures_path}}" ]; then
+  ACCEPTANCE_FAILURES="$(cat "{{acceptance_failures_path}}")"
+fi
+cat > "$PROMPT_FILE" <<__LR_REPAIR_PROMPT__
+Verify/acceptance failed for task {{task_id}} ({{task_title}}).
+
+Diagnose using these sources:
+1. Verify log: {{task_artifacts_dir}}/verify.log
+2. Acceptance gate failures (if any): {{acceptance_failures_path}}
+
+\${ACCEPTANCE_FAILURES:+Acceptance gate failure details:
+\$ACCEPTANCE_FAILURES
+}
+Fix the code in {{workdir}}. Respect acceptance: {{task_acceptance}}. Make the minimal fix and stop.
 __LR_REPAIR_PROMPT__
 codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "$(cat "$PROMPT_FILE")" > "{{task_artifacts_dir}}/repair.log" 2>&1`;
 export const DEFAULT_PLANNING_HOOK = `set -e

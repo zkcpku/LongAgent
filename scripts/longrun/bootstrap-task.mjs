@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { ROOT, OPS_DIR, QUEUE_PATH, parseArgs, resolvePathInput } from './lib.mjs';
+import { ROOT, OPS_DIR, QUEUE_PATH, parseArgs, resolvePathInput, agentExecLine } from './lib.mjs';
 
 function parseBooleanArg(input, fallback = false) {
   if (input == null) return fallback;
@@ -175,7 +175,7 @@ function normalizeTask(rawTask, index, total) {
   };
 }
 
-function runCodexDecomposition(requirement, objective, maxTasks, plannerLogPath) {
+function runCodexDecomposition(requirement, objective, maxTasks, plannerLogPath, agent = 'codex') {
   const prompt = [
     'You are the INIT_PLANNING planner for a long-running autonomous engineering agent.',
     `Objective: ${objective}`,
@@ -305,20 +305,21 @@ function runCodexDecomposition(requirement, objective, maxTasks, plannerLogPath)
     fs.mkdirSync(path.dirname(plannerLogPath), { recursive: true });
     const plannerLogStream = fs.createWriteStream(plannerLogPath, { flags: 'w' });
 
-    const child = spawn(
-      'codex',
-      ['exec', '--skip-git-repo-check', '--dangerously-bypass-approvals-and-sandbox', prompt],
-      { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] }
-    );
+    const [agentCmd, agentArgs] = agent === 'claude'
+      ? ['claude', ['--dangerously-skip-permissions', '--verbose', '-p', prompt]]
+      : ['codex', ['exec', '--skip-git-repo-check', '--dangerously-bypass-approvals-and-sandbox', prompt]];
+
+    const child = spawn(agentCmd, agentArgs, { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
 
     let rawOut = '';
     let rawErr = '';
 
-    streamWithPrefix(child.stdout, '[codex:decompose] ', (text) => {
+    const agentLabel = `[${agent}:decompose] `;
+    streamWithPrefix(child.stdout, agentLabel, (text) => {
       rawOut += text;
       plannerLogStream.write(text);
     });
-    streamWithPrefix(child.stderr, '[codex:decompose] ', (text) => {
+    streamWithPrefix(child.stderr, agentLabel, (text) => {
       rawErr += text;
       plannerLogStream.write(text);
     });
@@ -333,13 +334,13 @@ function runCodexDecomposition(requirement, objective, maxTasks, plannerLogPath)
       const combined = `${rawOut}\n${rawErr}`.trim();
       if (code !== 0) {
         const tail = combined.split(/\r?\n/).slice(-20).join('\n');
-        reject(new Error(`codex decomposition failed (exit=${code}). tail:\n${tail}`));
+        reject(new Error(`${agent} decomposition failed (exit=${code}). tail:\n${tail}`));
         return;
       }
 
       const parsed = extractJsonObject(rawOut) || extractJsonObject(combined);
       if (!parsed || typeof parsed !== 'object') {
-        reject(new Error('Unable to parse codex decomposition JSON output.'));
+        reject(new Error(`Unable to parse ${agent} decomposition JSON output.`));
         return;
       }
 
@@ -426,15 +427,16 @@ function enqueueTask(task) {
 const args = parseArgs(process.argv.slice(2));
 const requirementInput = args.requirement || args._.join(' ').trim();
 if (!requirementInput) {
-  console.error('Usage: npm run longrun:bootstrap:task -- --requirement "..." [--objective "..."] [--decompose codex] [--max-tasks N] [--start-runner true]');
+  console.error('Usage: npm run longrun:bootstrap:task -- --requirement "..." [--objective "..."] [--decompose codex|claude] [--max-tasks N] [--start-runner true]');
   process.exit(1);
 }
 
 const objective = String(args.objective || 'Deliver the input requirement with production-grade quality.').trim();
 const decomposeMode = String(args.decompose || 'codex').trim().toLowerCase();
-if (decomposeMode !== 'codex') {
-  throw new Error('Invalid --decompose, expected codex.');
+if (decomposeMode !== 'codex' && decomposeMode !== 'claude') {
+  throw new Error('Invalid --decompose, expected codex or claude.');
 }
+const agentName = decomposeMode; // 'codex' | 'claude'
 const maxTasks = parseOptionalPositiveInt(args['max-tasks']);
 const workdir = args.workdir ? resolvePathInput(args.workdir) : makeTempDir('longrun-task-work-');
 const artifactsDir = args['artifacts-dir'] ? resolvePathInput(args['artifacts-dir']) : makeTempDir('longrun-task-artifacts-');
@@ -452,7 +454,7 @@ PROMPT_FILE="{{task_artifacts_dir}}/planning.prompt.txt"
 cat > "$PROMPT_FILE" <<'__LR_PLANNING_PROMPT__'
 You are managing a long-running migration task. Review current progress in {{workdir}}, then review {{plan_path}} and {{queue_path}}. Decide whether to update plan/queue. Rules: (1) keep completed/in-progress/blocked tasks untouched unless fixing obvious metadata mistakes, (2) add/split/reorder only pending tasks when needed, (3) keep queue JSONL schema unchanged, (4) avoid duplicate tasks, (5) if no changes are needed, do nothing. Current task: {{task_id}} {{task_title}}. Acceptance: {{task_acceptance}}.
 __LR_PLANNING_PROMPT__
-codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "$(cat "$PROMPT_FILE")" > "{{task_artifacts_dir}}/planning.log" 2>&1`;
+${agentExecLine(agentName)} > "{{task_artifacts_dir}}/planning.log" 2>&1`;
 
 const implementHook = `set -e
 LOG="{{task_artifacts_dir}}/implement.log"
@@ -460,11 +462,11 @@ PROMPT_FILE="{{task_artifacts_dir}}/implement.prompt.txt"
 cat > "$PROMPT_FILE" <<'__LR_IMPLEMENT_PROMPT__'
 {{task_prompt}}
 __LR_IMPLEMENT_PROMPT__
-PIPE="$(mktemp -u "\${TMPDIR:-/tmp}/codex-implement.XXXXXX")"
+PIPE="$(mktemp -u "\${TMPDIR:-/tmp}/longrun-implement.XXXXXX")"
 mkfifo "$PIPE"
-tee "$LOG" < "$PIPE" | sed -u 's/^/[codex:implement] /' &
+tee "$LOG" < "$PIPE" | sed -u 's/^/[${agentName}:implement] /' &
 STREAM_PID=$!
-codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "$(cat "$PROMPT_FILE")" > "$PIPE" 2>&1
+${agentExecLine(agentName)} > "$PIPE" 2>&1
 RC=$?
 wait "$STREAM_PID" || true
 rm -f "$PIPE"
@@ -493,11 +495,11 @@ PROMPT_FILE="{{task_artifacts_dir}}/repair.prompt.txt"
 cat > "$PROMPT_FILE" <<'__LR_REPAIR_PROMPT__'
 Task {{task_id}} failed verify/acceptance. Read {{task_artifacts_dir}}/verify.log and acceptance artifacts; then fix code in {{workdir}} to satisfy: {{task_acceptance}}. Keep changes production-quality and minimal.
 __LR_REPAIR_PROMPT__
-PIPE="$(mktemp -u "\${TMPDIR:-/tmp}/codex-repair.XXXXXX")"
+PIPE="$(mktemp -u "\${TMPDIR:-/tmp}/longrun-repair.XXXXXX")"
 mkfifo "$PIPE"
-tee "$LOG" < "$PIPE" | sed -u 's/^/[codex:repair] /' &
+tee "$LOG" < "$PIPE" | sed -u 's/^/[${agentName}:repair] /' &
 STREAM_PID=$!
-codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "$(cat "$PROMPT_FILE")" > "$PIPE" 2>&1
+${agentExecLine(agentName)} > "$PIPE" 2>&1
 RC=$?
 wait "$STREAM_PID" || true
 rm -f "$PIPE"
@@ -509,7 +511,7 @@ mkdir -p "$OUT_DIR"
 
 {
 echo "# {{task_id}} {{task_title}}"
-echo "time: $(date -Iseconds)"
+echo "time: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 echo
 echo "## Workdir"
 pwd
@@ -531,7 +533,7 @@ else
 fi
 
 # Skills proposal inspired by Agents SDK workflow design.
-if command -v codex >/dev/null 2>&1; then
+if command -v ${agentName} >/dev/null 2>&1; then
   PROMPT_FILE="$OUT_DIR/skills-visualize.prompt.txt"
   cat > "$PROMPT_FILE" <<'__LR_SKILLS_PROMPT__'
 You are preparing a skills-oriented intermediate delivery for a long-running agent task.
@@ -558,11 +560,11 @@ Return markdown with:
 Keep it concrete and repo-local.
 __LR_SKILLS_PROMPT__
 
-  codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "$(cat "$PROMPT_FILE")" > "$OUT_DIR/skills-proposal.md" 2> "$OUT_DIR/skills-proposal.err" || {
-    echo "[skills-proposal] codex failed; see skills-proposal.err" > "$OUT_DIR/skills-proposal.md"
+  ${agentExecLine(agentName)} > "$OUT_DIR/skills-proposal.md" 2> "$OUT_DIR/skills-proposal.err" || {
+    echo "[skills-proposal] ${agentName} failed; see skills-proposal.err" > "$OUT_DIR/skills-proposal.md"
   }
 else
-  echo "[skills-proposal] codex not found; skipped" > "$OUT_DIR/skills-proposal.md"
+  echo "[skills-proposal] ${agentName} not found; skipped" > "$OUT_DIR/skills-proposal.md"
 fi`;
 
 const globalHook = [
@@ -588,9 +590,9 @@ try {
   console.log('[bootstrap] init longrun');
   runNodeScript('init.mjs', ['--force', '--workdir', workdir, '--artifacts-dir', artifactsDir]);
 
-  const plannerLogPath = path.join(OPS_DIR, 'decompose-codex.log');
-  console.log('[bootstrap] decompose by codex (few-shot)');
-  const planData = await runCodexDecomposition(requirementInput, objective, maxTasks, plannerLogPath);
+  const plannerLogPath = path.join(OPS_DIR, `decompose-${agentName}.log`);
+  console.log(`[bootstrap] decompose by ${agentName} (few-shot)`);
+  const planData = await runCodexDecomposition(requirementInput, objective, maxTasks, plannerLogPath, agentName);
 
   const maxTasksLabel = maxTasks == null ? 'unlimited' : String(maxTasks);
   const promptMd = `# Prompt\n\n## Objective\n${objective}\n\n## Requirement (Input)\n${requirementInput}\n\n## Decomposition\n- Mode: ${decomposeMode}\n- Max Tasks: ${maxTasksLabel}\n- Generated Tasks: ${planData.tasks.length}\n\n## Constraints\n- Keep commits small and reversible.\n- Every task must pass verify + acceptance gates.\n- Preserve maintainability and explicit diagnostics.\n`;

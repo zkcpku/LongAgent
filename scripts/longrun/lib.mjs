@@ -24,7 +24,20 @@ export const PHASES = [
 
 export const DEFAULT_REPAIR_MAX_ATTEMPTS = 3;
 export const DEFAULT_INIT_PLANNING_HOOK = '';
-export const DEFAULT_REPAIR_HOOK = `set -e
+
+/**
+ * Returns the shell snippet to invoke the AI agent with a prompt file.
+ * Supported agents: 'codex' (default), 'claude'
+ */
+export function agentExecLine(agent = 'codex') {
+  if (agent === 'claude') {
+    return 'claude --dangerously-skip-permissions --verbose -p "$(cat "$PROMPT_FILE")"';
+  }
+  return 'codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "$(cat "$PROMPT_FILE")"';
+}
+
+export function makeDefaultRepairHook(agent = 'codex') {
+  return `set -e
 PROMPT_FILE="{{task_artifacts_dir}}/repair.prompt.txt"
 ACCEPTANCE_FAILURES=""
 if [ -f "{{acceptance_failures_path}}" ]; then
@@ -42,15 +55,23 @@ Diagnose using these sources:
 }
 Fix the code in {{workdir}}. Respect acceptance: {{task_acceptance}}. Make the minimal fix and stop.
 __LR_REPAIR_PROMPT__
-codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "$(cat "$PROMPT_FILE")" > "{{task_artifacts_dir}}/repair.log" 2>&1`;
-export const DEFAULT_PLANNING_HOOK = `set -e
+${agentExecLine(agent)} > "{{task_artifacts_dir}}/repair.log" 2>&1`;
+}
+
+export function makeDefaultPlanningHook(agent = 'codex') {
+  return `set -e
 PROMPT_FILE="{{task_artifacts_dir}}/planning.prompt.txt"
 cat > "$PROMPT_FILE" <<'__LR_PLANNING_PROMPT__'
 You are managing a long-running migration task. Review current progress in {{workdir}}, then review {{plan_path}} and {{queue_path}}. Decide whether to update plan/queue. Rules: (1) keep completed/in-progress/blocked tasks untouched unless fixing obvious metadata mistakes, (2) add/split/reorder only pending tasks when needed, (3) keep queue JSONL schema unchanged, (4) avoid duplicate tasks, (5) if no changes are needed, do nothing. Current task: {{task_id}} {{task_title}}. Acceptance: {{task_acceptance}}.
 __LR_PLANNING_PROMPT__
-codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "$(cat "$PROMPT_FILE")" > "{{task_artifacts_dir}}/planning.log" 2>&1`;
+${agentExecLine(agent)} > "{{task_artifacts_dir}}/planning.log" 2>&1`;
+}
+
+// Backward-compatible constants (default to codex)
+export const DEFAULT_REPAIR_HOOK = makeDefaultRepairHook('codex');
+export const DEFAULT_PLANNING_HOOK = makeDefaultPlanningHook('codex');
 export const DEFAULT_CHECKPOINT_HOOK =
-  'set -e; if [ -d .git ]; then if ! git config user.email >/dev/null 2>&1; then git config user.email "codex-longrun@local"; fi; if ! git config user.name >/dev/null 2>&1; then git config user.name "Codex Longrun"; fi; git add -A; if git diff --cached --quiet; then echo "[checkpoint] no changes to commit"; else SHORTSTAT="$(git diff --cached --shortstat | sed \'s/^ *//;s/ *$//\')"; FILES="$(git diff --cached --name-only | head -n 6 | tr \'\\n\' \',\' | sed \'s/,$//\')"; MSG="checkpoint({{task_id}}): {{task_title}}"; if [ -n "$SHORTSTAT" ]; then MSG="$MSG | $SHORTSTAT"; fi; if [ -n "$FILES" ]; then MSG="$MSG | files: $FILES"; fi; MSG="$(printf \'%s\' "$MSG" | cut -c1-240)"; git commit -m "$MSG"; fi; else echo "[checkpoint] skip commit: no git repo in {{workdir}}"; fi; echo "$(date -Iseconds) {{task_id}} {{task_title}}" >> "{{artifacts_dir}}/timeline.log"';
+  'set -e; if [ -d .git ]; then if ! git config user.email >/dev/null 2>&1; then git config user.email "longrun-agent@local"; fi; if ! git config user.name >/dev/null 2>&1; then git config user.name "LongRun Agent"; fi; git add -A; if git diff --cached --quiet; then echo "[checkpoint] no changes to commit"; else SHORTSTAT="$(git diff --cached --shortstat | sed \'s/^ *//;s/ *$//\')"; FILES="$(git diff --cached --name-only | head -n 6 | tr \'\\n\' \',\' | sed \'s/,$//\')"; MSG="checkpoint({{task_id}}): {{task_title}}"; if [ -n "$SHORTSTAT" ]; then MSG="$MSG | $SHORTSTAT"; fi; if [ -n "$FILES" ]; then MSG="$MSG | files: $FILES"; fi; MSG="$(printf \'%s\' "$MSG" | cut -c1-240)"; git commit -m "$MSG"; fi; else echo "[checkpoint] skip commit: no git repo in {{workdir}}"; fi; echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") {{task_id}} {{task_title}}" >> "{{artifacts_dir}}/timeline.log"';
 
 const EMPTY_GATES = Object.freeze({
   cmd: '',

@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l /Users/zkcpku/Documents/seke/LongAgent/scripts/longrun/*.mjs)"
+    ]
+  }
+}
